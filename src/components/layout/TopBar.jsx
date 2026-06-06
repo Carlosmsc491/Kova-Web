@@ -1,0 +1,59 @@
+import { useLocation, useNavigate } from 'react-router-dom'
+import { ChevronLeft, Clock, ReceiptText } from 'lucide-react'
+
+const TITLES = {
+  '/':         'Dashboard',
+  '/expenses': 'Expenses',
+  '/income':   'Income',
+  '/credit':   'Credit',
+  '/goals':    'Goals',
+  '/chat':     'AI Assistant',
+  '/history':  'History',
+}
+
+export default function TopBar() {
+  const { pathname } = useLocation()
+  const navigate     = useNavigate()
+  const title        = TITLES[pathname] ?? 'KOVA'
+  const isHome       = pathname === '/'
+
+  return (
+    <header className="shrink-0 bg-bg-secondary border-b border-border-color px-4 flex items-center justify-between h-14">
+      <div className="flex items-center gap-3">
+        {!isHome && (
+          <button
+            onClick={() => navigate(-1)}
+            className="p-1.5 -ml-1 text-text-muted hover:text-text-primary rounded-lg transition-colors"
+          >
+            <ChevronLeft size={20} />
+          </button>
+        )}
+        {isHome && (
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center">
+            <span className="text-white text-sm font-bold font-display">K</span>
+          </div>
+        )}
+        <h1 className="text-text-primary font-semibold font-display">{title}</h1>
+      </div>
+
+      {isHome && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => navigate('/expenses')}
+            className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+            title="Expenses"
+          >
+            <ReceiptText size={18} />
+          </button>
+          <button
+            onClick={() => navigate('/history')}
+            className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+            title="History"
+          >
+            <Clock size={18} />
+          </button>
+        </div>
+      )}
+    </header>
+  )
+}
