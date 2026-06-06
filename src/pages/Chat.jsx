@@ -70,7 +70,7 @@ const mdComponents = {
       <span className="text-accent-primary mt-1.5 shrink-0">·</span><span>{children}</span>
     </li>
   ),
-  code: ({ children }) => <code className="bg-black/20 text-accent-primary text-xs px-1 py-0.5 rounded font-mono">{children}</code>,
+  code: ({ children }) => <code className="bg-bg-tertiary text-accent-primary text-xs px-1 py-0.5 rounded font-mono">{children}</code>,
   hr: () => <hr className="border-border-color my-2"/>,
 }
 
@@ -158,7 +158,7 @@ export default function Chat() {
         {apiKeyMissing && (
           <div className="bg-accent-warning/10 border border-accent-warning/30 rounded-2xl p-4 text-sm">
             <p className="text-accent-warning font-semibold mb-1">API Key Missing</p>
-            <p className="text-text-muted text-xs">Add <code className="bg-black/20 px-1 rounded">VITE_ANTHROPIC_API_KEY</code> to your <code className="bg-black/20 px-1 rounded">.env.local</code> file and rebuild.</p>
+            <p className="text-text-muted text-xs">Add <code className="bg-bg-tertiary px-1 rounded">VITE_ANTHROPIC_API_KEY</code> to your <code className="bg-bg-tertiary px-1 rounded">.env.local</code> file and rebuild.</p>
           </div>
         )}
 

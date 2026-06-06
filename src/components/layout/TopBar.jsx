@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronLeft, Clock, ReceiptText } from 'lucide-react'
+import { ChevronLeft, Clock, ReceiptText, Sun, Moon } from 'lucide-react'
+import { useThemeStore } from '../../stores/useThemeStore'
 
 const TITLES = {
   '/':         'Dashboard',
@@ -16,6 +17,7 @@ export default function TopBar() {
   const navigate     = useNavigate()
   const title        = TITLES[pathname] ?? 'KOVA'
   const isHome       = pathname === '/'
+  const { theme, toggle } = useThemeStore()
 
   return (
     <header className="shrink-0 bg-bg-secondary border-b border-border-color px-4 flex items-center justify-between h-14">
@@ -36,24 +38,33 @@ export default function TopBar() {
         <h1 className="text-text-primary font-semibold font-display">{title}</h1>
       </div>
 
-      {isHome && (
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => navigate('/expenses')}
-            className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
-            title="Expenses"
-          >
-            <ReceiptText size={18} />
-          </button>
-          <button
-            onClick={() => navigate('/history')}
-            className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
-            title="History"
-          >
-            <Clock size={18} />
-          </button>
-        </div>
-      )}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={toggle}
+          className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+        {isHome && (
+          <>
+            <button
+              onClick={() => navigate('/expenses')}
+              className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+              title="Expenses"
+            >
+              <ReceiptText size={18} />
+            </button>
+            <button
+              onClick={() => navigate('/history')}
+              className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+              title="History"
+            >
+              <Clock size={18} />
+            </button>
+          </>
+        )}
+      </div>
     </header>
   )
 }

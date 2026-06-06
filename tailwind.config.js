@@ -4,17 +4,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        'bg-primary':       '#0A0A0F',
-        'bg-secondary':     '#12121A',
-        'bg-tertiary':      '#1A1A26',
-        'accent-primary':   '#6C63FF',
-        'accent-secondary': '#00D4AA',
-        'accent-danger':    '#FF4757',
-        'accent-warning':   '#FFA502',
-        'text-primary':     '#FFFFFF',
-        'text-secondary':   '#A0A0B8',
-        'text-muted':       '#5A5A72',
-        'border-color':     '#2A2A3A',
+        'bg-primary':       'var(--color-bg-primary)',
+        'bg-secondary':     'var(--color-bg-secondary)',
+        'bg-tertiary':      'var(--color-bg-tertiary)',
+        'accent-primary':   'var(--color-accent-primary)',
+        'accent-secondary': 'var(--color-accent-secondary)',
+        'accent-danger':    'var(--color-accent-danger)',
+        'accent-warning':   'var(--color-accent-warning)',
+        'text-primary':     'var(--color-text-primary)',
+        'text-secondary':   'var(--color-text-secondary)',
+        'text-muted':       'var(--color-text-muted)',
+        'border-color':     'var(--color-border)',
       },
       fontFamily: {
         display: ['Space Grotesk', 'sans-serif'],
@@ -22,7 +22,7 @@ export default {
         mono:    ['JetBrains Mono', 'monospace'],
       },
       borderColor: {
-        DEFAULT: '#2A2A3A',
+        DEFAULT: 'var(--color-border)',
       },
     },
   },
