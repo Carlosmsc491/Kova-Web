@@ -1,0 +1,1 @@
+const n=new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}),e=t=>n.format(t??0),o=t=>t?new Date(t+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—",a=t=>`${(t??0).toFixed(1)}%`;function c(t){const r=t%100;return t+(["th","st","nd","rd"][(r-20)%10]||["th","st","nd","rd"][r]||"th")}export{o as a,a as b,e as f,c as o};
