@@ -1,13 +1,10 @@
-/**
- * AI service — calls Firebase Cloud Function (secure) or direct API (dev fallback).
- */
-import { getFunctions, httpsCallable } from 'firebase/functions'
-import { app } from '../firebase'
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
+const admin = require("firebase-admin");
 
-const functions = getFunctions(app)
-const chatFn   = httpsCallable(functions, 'chat')
+admin.initializeApp();
 
-const DIRECT_API_URL = 'https://api.anthropic.com/v1/messages'
+const anthropicKey = defineSecret("ANTHROPIC_API_KEY");
 
 const SYSTEM_PROMPT = `You are Kova, a personal financial assistant. You have access to the user's complete financial picture including:
 - Bank account balances
@@ -39,58 +36,50 @@ Your role:
 6. Flag if cash flow looks tight
 
 Always be honest. If money is tight, say so clearly. Never recommend spending committed money.
-Respond in whichever language the user uses (English or Spanish). Keep responses concise and actionable.`
+Respond in whichever language the user uses (English or Spanish). Keep responses concise and actionable.`;
 
-export async function sendChatMessage(userMessage, snapshot, history = []) {
-  // Try Cloud Function first (secure path)
-  try {
-    const result = await chatFn({ message: userMessage, snapshot, history })
-    return result.data.text
-  } catch (fnError) {
-    // If Cloud Function not deployed yet, fall back to direct API (dev only)
-    if (fnError.code === 'functions/not-found' || fnError.code === 'functions/unavailable') {
-      return sendDirectAPI(userMessage, snapshot, history)
+exports.chat = onCall(
+  { secrets: [anthropicKey], cors: true, maxInstances: 10 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be signed in.");
     }
-    throw fnError
+
+    const { message, snapshot, history } = request.data;
+    if (!message || typeof message !== "string") {
+      throw new HttpsError("invalid-argument", "message is required.");
+    }
+
+    const contextBlock = snapshot
+      ? `\n<financial_context>\n${JSON.stringify(snapshot, null, 2)}\n</financial_context>\n`
+      : "";
+
+    const messages = [
+      ...(history || []).map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: contextBlock ? `${contextBlock}\n\n${message}` : message },
+    ];
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey.value(),
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new HttpsError("internal", `Anthropic error: ${res.status}`);
+    }
+
+    const data = await res.json();
+    return { text: data.content[0]?.text ?? "" };
   }
-}
-
-async function sendDirectAPI(userMessage, snapshot, history) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-  if (!apiKey) {
-    throw new Error('Cloud Function not deployed and VITE_ANTHROPIC_API_KEY not set.')
-  }
-
-  const contextBlock = snapshot
-    ? `\n<financial_context>\n${JSON.stringify(snapshot, null, 2)}\n</financial_context>\n`
-    : ''
-
-  const messages = [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: contextBlock ? `${contextBlock}\n\n${userMessage}` : userMessage },
-  ]
-
-  const response = await fetch(DIRECT_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages,
-    }),
-  })
-
-  if (!response.ok) {
-    const err = await response.text()
-    throw new Error(`Anthropic API error: ${response.status} — ${err}`)
-  }
-
-  const data = await response.json()
-  return data.content[0]?.text ?? ''
-}
+);
