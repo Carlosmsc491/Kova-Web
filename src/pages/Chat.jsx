@@ -9,11 +9,27 @@ import { useGoalsStore }   from '../stores/useGoalsStore'
 import { useAccountStore } from '../stores/useAccountStore'
 import { formatCurrency }  from '../lib/formatters'
 
+// ─── helpers ─────────────────────────────────────────────────────────────────
+function isPaidThisCycle(expense) {
+  if (!expense.last_paid_date) return false
+  const paid = new Date(expense.last_paid_date)
+  const now  = new Date()
+  if (expense.due_type === 'biweekly') return (now - paid) / 86400000 < 14
+  return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
+}
+
 // ─── snapshot builder ─────────────────────────────────────────────────────────
 function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goals }) {
   const job1 = sources.find((s) => s.type === 'biweekly')
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const unpaidDays   = job2Days.filter((d) => !d.paid)
+
+  const active = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
+  const personal  = active.filter((e) => e.is_household !== true && e.is_household !== 1)
+  const household = active.filter((e) => e.is_household === true || e.is_household === 1)
+
+  const personalTotal = personal.reduce((s, e) => s + (e.amount || 0), 0)
+  const myShareTotal  = household.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
 
   return {
     total_balance:      totalBalance,
@@ -21,10 +37,18 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
     income_sources:     sources.map((s) => ({ name: s.name, type: s.type, amount: s.amount_per_period || s.daily_rate })),
     job2_pending:       unpaidDays.reduce((s, d) => s + (d.day_rate ?? 110), 0),
     job2_unpaid_days:   unpaidDays.length,
-    fixed_expenses:     expenses.filter((e) => e.is_active !== false && e.is_active !== 0).map((e) => ({
+    personal_expenses:  personal.map((e) => ({
       name: e.name, amount: e.amount, category: e.category, due_day: e.due_day,
+      paid_this_cycle: isPaidThisCycle(e),
     })),
-    total_monthly_expenses: expenses.filter((e) => e.is_active !== false && e.is_active !== 0).reduce((s, e) => s + (e.amount || 0), 0),
+    household_expenses: household.map((e) => ({
+      name: e.name, total_amount: e.amount, my_share: e.my_share ?? e.amount,
+      category: e.category, due_day: e.due_day,
+      paid_this_cycle: isPaidThisCycle(e),
+    })),
+    monthly_personal_total: personalTotal,
+    monthly_my_share_total: myShareTotal,
+    monthly_total_obligation: personalTotal + myShareTotal,
     credit_cards:       utilization?.cards?.map((c) => ({ name: c.name, balance: c.current_balance, limit: c.credit_limit, apr: c.apr, utilization: c.utilization_pct?.toFixed(1) + '%' })) ?? [],
     credit_utilization: utilization?.total_utilization_pct?.toFixed(1) + '%',
     active_goals:       goals.map((g) => ({ name: g.name, current: g.current_amount, target: g.target_amount, progress: g.target_amount > 0 ? ((g.current_amount/g.target_amount)*100).toFixed(0) + '%' : '0%' })),

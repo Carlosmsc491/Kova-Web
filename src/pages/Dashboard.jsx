@@ -279,21 +279,36 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Monthly expenses summary */}
-      <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Monthly Fixed Expenses</p>
-            <p className="text-2xl font-bold font-display text-accent-danger">
-              {formatCurrency(activeExpenses.reduce((s, e) => s + (e.amount || 0), 0))}
-            </p>
+      {/* Monthly expenses breakdown */}
+      {(() => {
+        const personalExp  = activeExpenses.filter((e) => e.is_household !== true && e.is_household !== 1)
+        const householdExp = activeExpenses.filter((e) => e.is_household === true || e.is_household === 1)
+        const personalTotal  = personalExp.reduce((s, e) => s + (e.amount || 0), 0)
+        const myShareTotal   = householdExp.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
+        const totalNeeded    = personalTotal + myShareTotal
+        return (
+          <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-text-muted text-xs uppercase tracking-wider font-medium">Monthly Coverage Needed</p>
+              <button onClick={() => navigate('/expenses')} className="text-text-muted hover:text-accent-primary transition-colors p-1">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <p className="text-3xl font-bold font-display text-accent-danger">{formatCurrency(totalNeeded)}</p>
+            <p className="text-text-muted text-xs mt-1.5">{activeExpenses.length} active expenses</p>
+            <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-border-color">
+              <div>
+                <p className="text-text-muted text-xs mb-0.5">Personal</p>
+                <p className="text-accent-danger font-mono font-bold text-sm">{formatCurrency(personalTotal)}</p>
+              </div>
+              <div>
+                <p className="text-text-muted text-xs mb-0.5">My Shared</p>
+                <p className="text-accent-primary font-mono font-bold text-sm">{formatCurrency(myShareTotal)}</p>
+              </div>
+            </div>
           </div>
-          <button onClick={() => navigate('/expenses')} className="text-text-muted hover:text-accent-primary transition-colors p-2">
-            <ChevronRight size={18} />
-          </button>
-        </div>
-        <p className="text-text-muted text-xs mt-0.5">{activeExpenses.length} active expenses</p>
-      </div>
+        )
+      })()}
 
       {/* Payment Calendar */}
       {calendarEvents.length > 0 && <PaymentCalendar events={calendarEvents} />}

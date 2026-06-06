@@ -36,7 +36,7 @@ function isPaidThisCycle(expense) {
 
 const BLANK = {
   name: '', amount: '', due_day: '1', due_type: 'monthly',
-  account_id: '', category: 'other', is_household: false, notes: '',
+  account_id: '', category: 'other', is_household: false, my_share: '', notes: '',
   expense_type: 'recurring', original_balance: '', remaining_balance: '',
 }
 
@@ -49,6 +49,7 @@ function toForm(exp) {
     account_id:       String(exp.account_id || ''),
     category:         exp.category || 'other',
     is_household:     exp.is_household === true || exp.is_household === 1,
+    my_share:         exp.my_share != null ? String(exp.my_share) : '',
     notes:            exp.notes || '',
     expense_type:     exp.expense_type || 'recurring',
     original_balance: exp.original_balance != null ? String(exp.original_balance) : '',
@@ -70,6 +71,7 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
       due_day: parseInt(form.due_day), due_type: form.due_type,
       account_id: form.account_id || null,
       category: form.category, is_household: form.is_household,
+      my_share: form.is_household && form.my_share ? parseFloat(form.my_share) : null,
       notes: form.notes || null, expense_type: form.expense_type,
     }
     if (isInstallment) {
@@ -143,6 +145,12 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
           </button>
           <label className="text-text-secondary text-sm" onClick={() => set('is_household', !form.is_household)}>Household expense</label>
         </div>
+        {form.is_household && (
+          <div className="col-span-2">
+            <label className="text-xs text-text-muted mb-1 block">My Share ($)</label>
+            <input type="number" step="0.01" min="0" className={inp} value={form.my_share} onChange={(e) => set('my_share', e.target.value)} placeholder="Your portion of this expense" />
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -189,7 +197,12 @@ function ExpenseRow({ expense, accounts, onEdit, onToggle, onDelete, onMarkPaid,
             <p className="text-text-muted text-xs mt-1">{formatCurrency(expense.remaining_balance || 0)} left · {paymentsLeft}mo</p>
           </>
         ) : (
-          <p className="text-text-muted text-xs mt-0.5">{expense.due_type === 'monthly' ? `${ordinal(expense.due_day)} of month` : 'Every 2 weeks'}</p>
+          <>
+            <p className="text-text-muted text-xs mt-0.5">{expense.due_type === 'monthly' ? `${ordinal(expense.due_day)} of month` : 'Every 2 weeks'}</p>
+            {(expense.is_household === true || expense.is_household === 1) && expense.my_share != null && (
+              <p className="text-accent-primary text-xs mt-0.5 font-medium">My share: {formatCurrency(expense.my_share)}</p>
+            )}
+          </>
         )}
       </div>
       <div className="flex flex-col items-end gap-1 shrink-0">
@@ -237,7 +250,9 @@ export default function Expenses() {
 
   const activeOnly     = activeExpenses.filter((e) => e.is_active !== false && e.is_active !== 0)
   const personalTotal  = activeOnly.filter((e) => e.is_household !== true && e.is_household !== 1).reduce((s, e) => s + (e.amount || 0), 0)
-  const householdTotal = activeOnly.filter((e) => e.is_household === true || e.is_household === 1).reduce((s, e) => s + (e.amount || 0), 0)
+  const householdExpenses = activeOnly.filter((e) => e.is_household === true || e.is_household === 1)
+  const householdTotal = householdExpenses.reduce((s, e) => s + (e.amount || 0), 0)
+  const myShareTotal   = householdExpenses.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
 
   const handleCreate = async (payload) => {
     setSaving(true)
@@ -280,8 +295,9 @@ export default function Expenses() {
           <p className="text-2xl font-bold font-display text-accent-danger">{formatCurrency(personalTotal)}</p>
         </div>
         <div className="bg-bg-secondary border border-border-color rounded-2xl p-3.5">
-          <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Household</p>
+          <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Shared</p>
           <p className="text-2xl font-bold font-display text-accent-primary">{formatCurrency(householdTotal)}</p>
+          <p className="text-accent-primary/80 text-xs font-medium mt-0.5">My share: {formatCurrency(myShareTotal)}</p>
         </div>
       </div>
 
