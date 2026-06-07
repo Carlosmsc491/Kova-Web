@@ -233,14 +233,12 @@ export default function UnlockScreen() {
       )}
 
       {/* Member sign in link */}
-      {!isSetup && (
-        <button
-          onClick={() => setMode('member')}
-          className="mt-4 text-text-muted text-xs text-center hover:text-text-secondary transition-colors"
-        >
-          Household member? Sign in →
-        </button>
-      )}
+      <button
+        onClick={() => setMode('member')}
+        className="mt-4 text-text-muted text-xs text-center hover:text-text-secondary transition-colors"
+      >
+        Household member? Sign in →
+      </button>
     </div>
   )
 }
