@@ -38,9 +38,14 @@ const BLANK = {
   name: '', amount: '', due_day: '1', due_type: 'monthly',
   account_id: '', category: 'other', is_household: false, my_share: '', notes: '',
   expense_type: 'recurring', original_balance: '', remaining_balance: '',
+  contributors: [],
 }
 
 function toForm(exp) {
+  let contributors = exp.contributors || []
+  if ((exp.is_household === true || exp.is_household === 1) && contributors.length === 0) {
+    contributors = [{ name: 'Me', amount: exp.my_share != null ? String(exp.my_share) : '' }]
+  }
   return {
     name:             exp.name,
     amount:           String(exp.amount),
@@ -54,25 +59,140 @@ function toForm(exp) {
     expense_type:     exp.expense_type || 'recurring',
     original_balance: exp.original_balance != null ? String(exp.original_balance) : '',
     remaining_balance: exp.remaining_balance != null ? String(exp.remaining_balance) : '',
+    contributors,
   }
 }
 
 // ─── Expense Form ─────────────────────────────────────────────────────────────
 function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing }) {
   const [form, setForm] = useState(initial || BLANK)
+  const [redistModal, setRedistModal] = useState(null)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
   const inp = 'w-full bg-bg-primary border border-border-color rounded-xl px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors'
   const isInstallment = form.expense_type === 'installment'
 
+  const handleHouseholdToggle = () => {
+    const newVal = !form.is_household
+    if (newVal) {
+      const total = parseFloat(form.amount) || 0
+      const share = total > 0 ? (total / 2).toFixed(2) : ''
+      setForm((f) => ({
+        ...f,
+        is_household: true,
+        contributors: f.contributors.length > 0 ? f.contributors : [
+          { name: 'Me', amount: share },
+          { name: '', amount: share },
+        ],
+        my_share: share,
+      }))
+    } else {
+      setForm((f) => ({ ...f, is_household: false }))
+    }
+  }
+
+  const splitEvenly = () => {
+    const total = parseFloat(form.amount) || 0
+    const count = form.contributors.length
+    if (count === 0) return
+    const share = (total / count).toFixed(2)
+    setForm((f) => ({
+      ...f,
+      contributors: f.contributors.map((c) => ({ ...c, amount: share })),
+      my_share: share,
+    }))
+  }
+
+  const addContributor = () => {
+    const total = parseFloat(form.amount) || 0
+    const newContribs = [...form.contributors, { name: '', amount: '' }]
+    if (total > 0) {
+      const share = (total / newContribs.length).toFixed(2)
+      setForm((f) => ({
+        ...f,
+        contributors: newContribs.map((c) => ({ ...c, amount: share })),
+        my_share: share,
+      }))
+    } else {
+      setForm((f) => ({ ...f, contributors: newContribs }))
+    }
+  }
+
+  const removeContributor = (idx) => {
+    if (idx === 0) return
+    const total = parseFloat(form.amount) || 0
+    setForm((f) => {
+      const next = f.contributors.filter((_, i) => i !== idx)
+      if (total > 0 && next.length > 0) {
+        const share = (total / next.length).toFixed(2)
+        const split = next.map((c) => ({ ...c, amount: share }))
+        return { ...f, contributors: split, my_share: share }
+      }
+      return { ...f, contributors: next }
+    })
+  }
+
+  const updateContributorName = (idx, name) => {
+    setForm((f) => ({
+      ...f,
+      contributors: f.contributors.map((c, i) => i === idx ? { ...c, name } : c),
+    }))
+  }
+
+  const updateContributorAmount = (idx, newVal) => {
+    const newContribs = form.contributors.map((c, i) => i === idx ? { ...c, amount: newVal } : c)
+    const total = parseFloat(form.amount) || 0
+    const sumAll = newContribs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
+    const gap = total - sumAll
+    const myShare = parseFloat(newContribs[0]?.amount) || 0
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
+    if (Math.abs(gap) > 0.01 && newContribs.length > 1) {
+      setRedistModal({ changedIdx: idx, gap })
+    }
+  }
+
+  const handleSplitAmongOthers = () => {
+    const { changedIdx, gap } = redistModal
+    const othersCount = form.contributors.length - 1
+    const perPerson = gap / othersCount
+    const newContribs = form.contributors.map((c, i) => {
+      if (i === changedIdx) return c
+      return { ...c, amount: ((parseFloat(c.amount) || 0) + perPerson).toFixed(2) }
+    })
+    const myShare = parseFloat(newContribs[0]?.amount) || 0
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
+    setRedistModal(null)
+  }
+
+  const handleCoverMyself = () => {
+    const { gap } = redistModal
+    const newContribs = form.contributors.map((c, i) => {
+      if (i === 0) return { ...c, amount: ((parseFloat(c.amount) || 0) + gap).toFixed(2) }
+      return c
+    })
+    const myShare = parseFloat(newContribs[0]?.amount) || 0
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
+    setRedistModal(null)
+  }
+
+  const contributorsSum = form.contributors.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
+  const totalAmount = parseFloat(form.amount) || 0
+  const allocationGap = totalAmount > 0 ? totalAmount - contributorsSum : 0
+
   const handleSubmit = (e) => {
     e.preventDefault()
+    const myShareVal = form.is_household
+      ? (form.contributors.length > 0 ? parseFloat(form.contributors[0]?.amount) || null : form.my_share ? parseFloat(form.my_share) : null)
+      : null
     const payload = {
       name: form.name, amount: parseFloat(form.amount),
       due_day: parseInt(form.due_day), due_type: form.due_type,
       account_id: form.account_id || null,
       category: form.category, is_household: form.is_household,
-      my_share: form.is_household && form.my_share ? parseFloat(form.my_share) : null,
+      my_share: myShareVal,
       notes: form.notes || null, expense_type: form.expense_type,
+      contributors: form.is_household && form.contributors.length > 0
+        ? form.contributors.map((c, i) => ({ name: c.name || (i === 0 ? 'Me' : `Person ${i + 1}`), amount: parseFloat(c.amount) || 0 }))
+        : null,
     }
     if (isInstallment) {
       payload.original_balance = form.original_balance ? parseFloat(form.original_balance) : null
@@ -139,16 +259,90 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
           </select>
         </div>
         <div className="col-span-2 flex items-center gap-2.5">
-          <button type="button" onClick={() => set('is_household', !form.is_household)}
+          <button type="button" onClick={handleHouseholdToggle}
             className={`w-9 h-5 rounded-full transition-colors shrink-0 ${form.is_household ? 'bg-accent-primary' : 'bg-bg-primary border border-border-color'}`}>
             <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform mx-0.5 ${form.is_household ? 'translate-x-4' : 'translate-x-0'}`} />
           </button>
-          <label className="text-text-secondary text-sm" onClick={() => set('is_household', !form.is_household)}>Household expense</label>
+          <label className="text-text-secondary text-sm cursor-pointer" onClick={handleHouseholdToggle}>Household expense</label>
         </div>
+
+        {/* Contributors section */}
         {form.is_household && (
-          <div className="col-span-2">
-            <label className="text-xs text-text-muted mb-1 block">My Share ($)</label>
-            <input type="number" step="0.01" min="0" className={inp} value={form.my_share} onChange={(e) => set('my_share', e.target.value)} placeholder="Your portion of this expense" />
+          <div className="col-span-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-text-muted">Contributors</label>
+              <button type="button" onClick={splitEvenly}
+                className="text-xs text-accent-primary hover:text-accent-primary/70 transition-colors">
+                Split evenly
+              </button>
+            </div>
+
+            {form.contributors.map((contributor, idx) => (
+              <div key={idx} className="flex gap-2 items-center">
+                <input
+                  className="flex-1 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors"
+                  value={contributor.name}
+                  onChange={(e) => updateContributorName(idx, e.target.value)}
+                  placeholder={idx === 0 ? 'Me' : `Person ${idx + 1}`}
+                />
+                <input
+                  type="number" step="0.01" min="0"
+                  className="w-28 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors"
+                  value={contributor.amount}
+                  onChange={(e) => updateContributorAmount(idx, e.target.value)}
+                  placeholder="0.00"
+                />
+                {idx > 0 && (
+                  <button type="button" onClick={() => removeContributor(idx)}
+                    className="p-1.5 text-text-muted hover:text-accent-danger transition-colors shrink-0">
+                    <X size={14}/>
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {/* Allocation status */}
+            {totalAmount > 0 && (
+              <div className={`flex items-center justify-between text-xs px-0.5 ${Math.abs(allocationGap) > 0.01 ? 'text-accent-danger' : 'text-green-400'}`}>
+                <span>Allocated: {formatCurrency(contributorsSum)}</span>
+                <span>{Math.abs(allocationGap) > 0.01 ? `${allocationGap > 0 ? '+' : ''}${formatCurrency(allocationGap)} remaining` : '✓ Balanced'}</span>
+              </div>
+            )}
+
+            <button type="button" onClick={addContributor}
+              className="flex items-center gap-1.5 text-xs text-accent-primary hover:text-accent-primary/70 transition-colors py-0.5">
+              <Plus size={12}/> Add contributor
+            </button>
+
+            {/* Redistribution prompt */}
+            {redistModal && (
+              <div className="bg-bg-primary border border-accent-primary/20 rounded-xl p-3 space-y-2">
+                <p className="text-text-primary text-xs font-semibold">
+                  {redistModal.gap > 0 ? 'Shortfall' : 'Overage'}: {formatCurrency(Math.abs(redistModal.gap))}
+                </p>
+                <p className="text-text-muted text-xs">
+                  {redistModal.gap > 0
+                    ? `There are ${formatCurrency(redistModal.gap)} unallocated. How would you like to cover it?`
+                    : `The contributions exceed the total by ${formatCurrency(Math.abs(redistModal.gap))}. How would you like to adjust?`}
+                </p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={handleSplitAmongOthers}
+                    className="flex-1 py-1.5 rounded-lg text-xs bg-accent-primary text-white font-semibold">
+                    Split among others
+                  </button>
+                  {redistModal.changedIdx !== 0 && (
+                    <button type="button" onClick={handleCoverMyself}
+                      className="flex-1 py-1.5 rounded-lg text-xs border border-border-color text-text-primary font-semibold">
+                      I'll cover it
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setRedistModal(null)}
+                    className="px-3 py-1.5 rounded-lg text-xs text-text-muted border border-border-color">
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -199,8 +393,15 @@ function ExpenseRow({ expense, accounts, onEdit, onToggle, onDelete, onMarkPaid,
         ) : (
           <>
             <p className="text-text-muted text-xs mt-0.5">{expense.due_type === 'monthly' ? `${ordinal(expense.due_day)} of month` : 'Every 2 weeks'}</p>
-            {(expense.is_household === true || expense.is_household === 1) && expense.my_share != null && (
-              <p className="text-accent-primary text-xs mt-0.5 font-medium">My share: {formatCurrency(expense.my_share)}</p>
+            {(expense.is_household === true || expense.is_household === 1) && (
+              <>
+                {expense.my_share != null && (
+                  <p className="text-accent-primary text-xs mt-0.5 font-medium">My share: {formatCurrency(expense.my_share)}</p>
+                )}
+                {expense.contributors && expense.contributors.length > 1 && (
+                  <p className="text-text-muted text-xs mt-0.5">{expense.contributors.length} contributors</p>
+                )}
+              </>
             )}
           </>
         )}
