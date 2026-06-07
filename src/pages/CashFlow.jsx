@@ -5,12 +5,22 @@ import { useIncomeStore }     from '../stores/useIncomeStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency }     from '../lib/formatters'
-import { getNextPaycheckDates, toISO } from '../lib/dateUtils'
+import { parseISO, toISO } from '../lib/dateUtils'
 
 const HORIZON = 60
 
+// Returns true when `date` is exactly N*14 days after lastPaycheckISO (N≥1).
+// Uses millisecond arithmetic — no string comparison, no timezone edge cases.
+function isPaycheckDay(date, lastPaycheckISO) {
+  if (!lastPaycheckISO) return false
+  const last    = parseISO(lastPaycheckISO)
+  const diffMs  = date.getTime() - last.getTime()
+  const diffDays = Math.round(diffMs / 86_400_000)
+  return diffDays > 0 && diffDays % 14 === 0
+}
+
 // ─── Build day-by-day projection ──────────────────────────────────────────────
-function buildTimeline({ startBalance, effectiveExpenses, job1, paycheckDates }) {
+function buildTimeline({ startBalance, effectiveExpenses, job1 }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -20,15 +30,14 @@ function buildTimeline({ startBalance, effectiveExpenses, job1, paycheckDates })
   for (let i = 0; i <= HORIZON; i++) {
     const date = new Date(today)
     date.setDate(date.getDate() + i)
-    const dateStr = toISO(date)
-    const dom     = date.getDate()
-    const events  = []
+    const dom    = date.getDate()
+    const events = []
 
-    // Paychecks
-    if (paycheckDates.includes(dateStr) && job1?.amount_per_period) {
+    // Paychecks — arithmetic check, no string matching
+    if (isPaycheckDay(date, job1?.last_paycheck_date) && job1?.amount_per_period) {
       events.push({
-        type: 'income',
-        name: job1.name || 'Job 1 Paycheck',
+        type:   'income',
+        name:   job1.name || 'Job 1 Paycheck',
         amount: Number(job1.amount_per_period),
       })
     }
@@ -50,7 +59,7 @@ function buildTimeline({ startBalance, effectiveExpenses, job1, paycheckDates })
     const dayOut = events.filter((e) => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
     balance = Math.round((balance + dayIn - dayOut) * 100) / 100
 
-    days.push({ dateStr, date, events, dayIn, dayOut, balance, isToday: i === 0 })
+    days.push({ dateStr: toISO(date), date, events, dayIn, dayOut, balance, isToday: i === 0 })
   }
 
   return days
@@ -160,11 +169,7 @@ export default function CashFlow() {
     return e
   })
 
-  const paycheckDates = job1?.last_paycheck_date
-    ? getNextPaycheckDates(job1.last_paycheck_date, 8)
-    : []
-
-  const timeline = buildTimeline({ startBalance: totalBalance, effectiveExpenses, job1, paycheckDates })
+  const timeline = buildTimeline({ startBalance: totalBalance, effectiveExpenses, job1 })
 
   // Summary stats
   const endBalance   = timeline[timeline.length - 1]?.balance ?? totalBalance

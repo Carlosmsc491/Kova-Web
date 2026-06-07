@@ -11,7 +11,7 @@ import { useGoalsStore }      from '../stores/useGoalsStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency, formatDate, formatPercent } from '../lib/formatters'
-import { getNextPaycheckDate, getNextPaycheckDates, daysUntil, parseISO, toISO } from '../lib/dateUtils'
+import { getNextPaycheckDate, daysUntil, parseISO, toISO } from '../lib/dateUtils'
 import { buildPaymentCalendar } from '../lib/budgetEngine'
 
 // ─── count-up hook ────────────────────────────────────────────────────────────
@@ -219,10 +219,18 @@ export default function Dashboard() {
     e.due_type === 'monthly' ? s + (e.amount || 0) : s, 0)
   const safetyFloor = totalBalance - monthlyExpenseTotal
 
-  // ── Payment calendar with reliable paycheck detection ────────────────────────
-  const paycheckDateList = job1?.last_paycheck_date
-    ? getNextPaycheckDates(job1.last_paycheck_date, 8)
-    : []
+  // ── Payment calendar — build paycheck list via arithmetic (no string matching) ─
+  const paycheckDateList = []
+  if (job1?.last_paycheck_date && job1?.amount_per_period) {
+    const lastPay  = parseISO(job1.last_paycheck_date)
+    const todayMs  = new Date().setHours(0, 0, 0, 0)
+    for (let i = 1; i <= 14; i++) {
+      const d       = new Date(todayMs)
+      d.setDate(d.getDate() + i)
+      const diffDays = Math.round((d.getTime() - lastPay.getTime()) / 86_400_000)
+      if (diffDays > 0 && diffDays % 14 === 0) paycheckDateList.push(toISO(d))
+    }
+  }
 
   const calendarEvents = buildPaymentCalendar({
     expenses: effectiveExpenses,
