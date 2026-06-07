@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, DollarSign, Home, Target, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, DollarSign, Home, Landmark, MessageCircle } from 'lucide-react'
 
 const TABS = [
   { to: '/',          label: 'Home',      Icon: LayoutDashboard },
   { to: '/income',    label: 'Income',    Icon: DollarSign },
   { to: '/household', label: 'Household', Icon: Home },
-  { to: '/goals',     label: 'Goals',     Icon: Target },
+  { to: '/accounts',  label: 'Accounts',  Icon: Landmark },
   { to: '/chat',      label: 'Chat',      Icon: MessageCircle },
 ]
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { accountService } from '../services/firestoreService'
+import { accountService, transferService, historyService } from '../services/firestoreService'
 
 export const useAccountStore = create((set) => ({
   accounts: [],
@@ -36,5 +36,40 @@ export const useAccountStore = create((set) => ({
   getTotalBalance: () => {
     const { accounts } = useAccountStore.getState()
     return accounts.reduce((sum, a) => sum + (a.current_balance ?? 0), 0)
+  },
+
+  executeTransfer: async ({ from_account_id, to_account_id, amount, note }) => {
+    const { accounts } = useAccountStore.getState()
+    const fromAccount  = accounts.find((a) => a.id === from_account_id)
+    const toAccount    = accounts.find((a) => a.id === to_account_id)
+    if (!fromAccount || !toAccount) throw new Error('Account not found')
+
+    const newFromBal = Math.round(((fromAccount.current_balance ?? 0) - amount) * 100) / 100
+    const newToBal   = Math.round(((toAccount.current_balance ?? 0) + amount) * 100) / 100
+
+    await accountService.update(from_account_id, { current_balance: newFromBal })
+    await accountService.update(to_account_id,   { current_balance: newToBal })
+    await transferService.create({
+      from_account_id,
+      to_account_id,
+      from_account_name: fromAccount.name,
+      to_account_name:   toAccount.name,
+      amount,
+      note:  note || null,
+      date:  new Date().toISOString().split('T')[0],
+    })
+    await historyService.log(
+      'transfer',
+      `Transferred $${amount.toFixed(2)} from ${fromAccount.name} to ${toAccount.name}${note ? ` — ${note}` : ''}`,
+      amount,
+      { from_account_id, to_account_id },
+    )
+
+    set((s) => ({
+      accounts: s.accounts.map((a) =>
+        a.id === from_account_id ? { ...a, current_balance: newFromBal } :
+        a.id === to_account_id   ? { ...a, current_balance: newToBal }   : a
+      ),
+    }))
   },
 }))

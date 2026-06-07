@@ -1,14 +1,18 @@
+import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import TopBar from './TopBar'
 import BottomNav from './BottomNav'
+import Sidebar from './Sidebar'
 
 export default function Layout() {
   const { pathname } = useLocation()
   const isChat = pathname === '/chat'
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
     <div className="h-full flex flex-col bg-bg-primary overflow-hidden">
-      <TopBar />
+      <TopBar onMenuOpen={() => setSidebarOpen(true)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       {isChat ? (
         // Chat gets a raw flex column without padding, managing its own layout
         <main className="flex-1 min-h-0 flex flex-col overflow-hidden">

@@ -171,6 +171,13 @@ export const accountService = {
   remove:  (id) => deleteDocById('accounts', id),
 }
 
+// ── Transfers ─────────────────────────────────────────────────────────────────
+
+export const transferService = {
+  getAll:  () => fetchAll('transfers'),
+  create:  (data) => createDoc('transfers', data),
+}
+
 // ── Chat History ──────────────────────────────────────────────────────────────
 
 export const chatService = {

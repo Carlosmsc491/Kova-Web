@@ -1,18 +1,20 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronLeft, Clock, ReceiptText, Sun, Moon } from 'lucide-react'
+import { ChevronLeft, Clock, ReceiptText, Sun, Moon, Menu } from 'lucide-react'
 import { useThemeStore } from '../../stores/useThemeStore'
 
 const TITLES = {
-  '/':         'Dashboard',
-  '/expenses': 'Expenses',
-  '/income':   'Income',
-  '/credit':   'Credit',
-  '/goals':    'Goals',
-  '/chat':     'AI Assistant',
-  '/history':  'History',
+  '/':          'Dashboard',
+  '/expenses':  'Expenses',
+  '/income':    'Income',
+  '/credit':    'Credit',
+  '/goals':     'Goals',
+  '/accounts':  'Accounts',
+  '/chat':      'AI Assistant',
+  '/history':   'History',
+  '/household': 'Household',
 }
 
-export default function TopBar() {
+export default function TopBar({ onMenuOpen }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
   const title        = TITLES[pathname] ?? 'KOVA'
@@ -64,6 +66,13 @@ export default function TopBar() {
             </button>
           </>
         )}
+        <button
+          onClick={onMenuOpen}
+          className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+          title="More"
+        >
+          <Menu size={18} />
+        </button>
       </div>
     </header>
   )
