@@ -191,14 +191,24 @@ export default function Dashboard() {
   }, [job2?.id, fetchJob2Days])
 
   const activeExpenses = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
+  const memberCount    = contributors.length + 1
+
+  // For budget projections use only the user's share of household expenses
+  const effectiveExpenses = activeExpenses.map((e) => {
+    if ((e.is_household === true || e.is_household === 1) && memberCount > 1) {
+      return { ...e, amount: (e.amount || 0) / memberCount }
+    }
+    return e
+  })
+
   const budgetData = calculateTrulyAvailable({
     currentBalance: totalBalance,
-    expenses: activeExpenses,
+    expenses: effectiveExpenses,
     job1Source: job1,
   })
 
   const calendarEvents = buildPaymentCalendar({
-    expenses: activeExpenses,
+    expenses: effectiveExpenses,
     job1Source: job1,
   })
 
