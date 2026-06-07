@@ -41,10 +41,6 @@ Respond in whichever language the user uses (English or Spanish). Keep responses
 exports.chat = onCall(
   { secrets: [anthropicKey], cors: true, maxInstances: 10 },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Must be signed in.");
-    }
-
     const { message, snapshot, history } = request.data;
     if (!message || typeof message !== "string") {
       throw new HttpsError("invalid-argument", "message is required.");
