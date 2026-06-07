@@ -271,17 +271,23 @@ export default function Household() {
   const [saving,    setSaving]    = useState(false)
   const [inviteLink,   setInviteLink]   = useState(null)
   const [generating,   setGenerating]   = useState(false)
+  const [showInviteForm, setShowInviteForm] = useState(false)
+  const [inviteEmail,    setInviteEmail]    = useState('')
 
   useEffect(() => { fetch(); fetchSources() }, [fetch, fetchSources])
 
   if (role === 'member') return <MemberHouseholdView householdId={householdId} />
 
-  const handleGenerateInvite = async () => {
+  const handleGenerateInvite = async (e) => {
+    e.preventDefault()
+    if (!inviteEmail.trim()) return
     setGenerating(true)
     try {
-      const token = await generateInvite(user.uid, householdExpenses)
+      const token = await generateInvite(user.uid, householdExpenses, inviteEmail)
       const base  = window.location.href.split('#')[0]
       setInviteLink(`${base}#/join?token=${token}`)
+      setShowInviteForm(false)
+      setInviteEmail('')
       toast.success('Invite link created!')
     } catch {
       toast.error('Failed to create invite')
@@ -327,9 +333,9 @@ export default function Household() {
           <p className="text-text-muted text-xs mt-0.5">Shared expenses & contributors</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleGenerateInvite} disabled={generating}
-            className="flex items-center gap-1 text-xs text-accent-secondary border border-accent-secondary/30 rounded-xl px-2.5 py-1.5 hover:bg-accent-secondary/10 transition-colors disabled:opacity-50">
-            <Link2 size={13}/> {generating ? 'Creating…' : 'Invite'}
+          <button onClick={() => { setShowInviteForm((v) => !v); setInviteLink(null) }}
+            className="flex items-center gap-1 text-xs text-accent-secondary border border-accent-secondary/30 rounded-xl px-2.5 py-1.5 hover:bg-accent-secondary/10 transition-colors">
+            <Link2 size={13}/> Invite
           </button>
           <button onClick={() => { setShowForm(true); setEditing(null) }}
             className="flex items-center gap-1 text-xs text-accent-primary border border-accent-primary/30 rounded-xl px-2.5 py-1.5 hover:bg-accent-primary/10 transition-colors">
@@ -337,6 +343,27 @@ export default function Household() {
           </button>
         </div>
       </div>
+
+      {showInviteForm && !inviteLink && (
+        <form onSubmit={handleGenerateInvite} className="bg-accent-secondary/10 border border-accent-secondary/30 rounded-2xl p-4 space-y-3">
+          <p className="text-text-primary font-semibold text-sm">Invite a household member</p>
+          <div>
+            <label className="text-xs text-text-muted mb-1.5 block">Their email address</label>
+            <input
+              type="email" required
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="camila@gmail.com"
+              className="w-full bg-bg-secondary border border-border-color rounded-xl px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-accent-secondary transition-colors placeholder:text-text-muted"
+            />
+            <p className="text-text-muted text-xs mt-1">Only this email can use the invite link.</p>
+          </div>
+          <button type="submit" disabled={generating}
+            className="w-full bg-accent-secondary text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50">
+            {generating ? 'Creating…' : 'Generate Link'}
+          </button>
+        </form>
+      )}
 
       {inviteLink && (
         <div className="bg-accent-secondary/10 border border-accent-secondary/30 rounded-2xl p-4">

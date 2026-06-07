@@ -269,14 +269,15 @@ export const householdDocService = {
 // ── Invites ───────────────────────────────────────────────────────────────────
 
 export const inviteService = {
-  create: async (ownerUid, householdId) => {
+  create: async (ownerUid, householdId, invitedEmail = null) => {
     const token = generateId()
     await setDoc(doc(db, 'invites', token), {
-      owner_uid:    ownerUid,
-      household_id: householdId,
-      created_at:   serverTimestamp(),
-      expires_at:   new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      used:         false,
+      owner_uid:     ownerUid,
+      household_id:  householdId,
+      invited_email: invitedEmail ? invitedEmail.trim().toLowerCase() : null,
+      created_at:    serverTimestamp(),
+      expires_at:    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      used:          false,
     })
     return token
   },

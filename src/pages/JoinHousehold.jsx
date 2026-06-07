@@ -24,10 +24,13 @@ export default function JoinHousehold() {
   useEffect(() => {
     if (!token) { navigate('/'); return }
     inviteService.get(token).then((inv) => {
-      if (!inv)       setInviteErr('This invite link is invalid.')
+      if (!inv)          setInviteErr('This invite link is invalid.')
       else if (inv.used) setInviteErr('This invite link has already been used.')
       else if (new Date(inv.expires_at) < new Date()) setInviteErr('This invite link has expired.')
-      else setInvite(inv)
+      else {
+        setInvite(inv)
+        if (inv.invited_email) setEmail(inv.invited_email)
+      }
       setFetching(false)
     }).catch(() => { setInviteErr('Could not load invite.'); setFetching(false) })
   }, [token, navigate])
@@ -40,6 +43,12 @@ export default function JoinHousehold() {
     }
     setSubmitting(true)
     setFormErr(null)
+
+    if (invite.invited_email && email.trim().toLowerCase() !== invite.invited_email) {
+      setFormErr(`This invite is for ${invite.invited_email}. Please use that email address.`)
+      setSubmitting(false)
+      return
+    }
 
     const result = await registerMember(email.trim(), password)
     if (!result.ok) { setFormErr(result.error); setSubmitting(false); return }
@@ -93,7 +102,8 @@ export default function JoinHousehold() {
             <div>
               <label className="text-xs text-text-muted mb-1.5 block">Email</label>
               <input type="email" className={inp} placeholder="you@example.com" value={email}
-                onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+                onChange={(e) => setEmail(e.target.value)} required autoComplete="email"
+                readOnly={!!invite?.invited_email} />
             </div>
             <div>
               <label className="text-xs text-text-muted mb-1.5 block">Password <span className="text-text-muted">(min 6 characters)</span></label>

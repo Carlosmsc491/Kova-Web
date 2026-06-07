@@ -42,7 +42,7 @@ export const useHouseholdStore = create((set, get) => ({
     await get().fetch()
   },
 
-  generateInvite: async (ownerUid, householdExpenses) => {
+  generateInvite: async (ownerUid, householdExpenses, invitedEmail) => {
     let hid = useRoleStore.getState().householdId
     if (!hid) {
       hid = await householdDocService.create(ownerUid)
@@ -50,7 +50,7 @@ export const useHouseholdStore = create((set, get) => ({
       useRoleStore.getState().setHouseholdId(hid)
     }
     await householdDocService.syncExpenses(hid, householdExpenses)
-    const token = await inviteService.create(ownerUid, hid)
+    const token = await inviteService.create(ownerUid, hid, invitedEmail)
     return token
   },
 }))
