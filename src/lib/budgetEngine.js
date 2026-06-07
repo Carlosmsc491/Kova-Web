@@ -70,7 +70,7 @@ export function calculateTrulyAvailable(params) {
   return {
     current_balance:  currentBalance,
     safety_floor:     safetyFloor,
-    truly_available:  Math.max(0, currentBalance - safetyFloor),
+    truly_available:  trulyAvailable,
     next_low_point:   minEntry,
     timeline,
   }

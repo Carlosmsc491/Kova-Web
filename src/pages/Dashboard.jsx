@@ -4,11 +4,12 @@ import {
   TrendingUp, DollarSign, CalendarClock, CreditCard,
   Clock, ChevronRight, Target, ArrowRight,
 } from 'lucide-react'
-import { useExpenseStore }  from '../stores/useExpenseStore'
-import { useIncomeStore }   from '../stores/useIncomeStore'
-import { useCreditStore }   from '../stores/useCreditStore'
-import { useGoalsStore }    from '../stores/useGoalsStore'
-import { useAccountStore }  from '../stores/useAccountStore'
+import { useExpenseStore }    from '../stores/useExpenseStore'
+import { useIncomeStore }     from '../stores/useIncomeStore'
+import { useCreditStore }     from '../stores/useCreditStore'
+import { useGoalsStore }      from '../stores/useGoalsStore'
+import { useAccountStore }    from '../stores/useAccountStore'
+import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency, formatDate, formatPercent } from '../lib/formatters'
 import { getNextPaycheckDate, daysUntil }            from '../lib/dateUtils'
 import { calculateTrulyAvailable, buildPaymentCalendar } from '../lib/budgetEngine'
@@ -169,6 +170,7 @@ export default function Dashboard() {
   const { utilization, fetch: fetchCredit }    = useCreditStore()
   const { goals, fetch: fetchGoals }           = useGoalsStore()
   const { accounts, fetch: fetchAccounts }     = useAccountStore()
+  const { contributors, fetch: fetchHousehold } = useHouseholdStore()
 
   useEffect(() => {
     fetchExpenses()
@@ -176,7 +178,8 @@ export default function Dashboard() {
     fetchCredit()
     fetchGoals()
     fetchAccounts()
-  }, [fetchExpenses, fetchSources, fetchCredit, fetchGoals, fetchAccounts])
+    fetchHousehold()
+  }, [fetchExpenses, fetchSources, fetchCredit, fetchGoals, fetchAccounts, fetchHousehold])
 
   const job1       = sources.find((s) => s.type === 'biweekly')
   const job2       = sources.find((s) => s.type === 'variable_daily')
@@ -283,9 +286,11 @@ export default function Dashboard() {
       {(() => {
         const personalExp  = activeExpenses.filter((e) => e.is_household !== true && e.is_household !== 1)
         const householdExp = activeExpenses.filter((e) => e.is_household === true || e.is_household === 1)
-        const personalTotal  = personalExp.reduce((s, e) => s + (e.amount || 0), 0)
-        const myShareTotal   = householdExp.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
-        const totalNeeded    = personalTotal + myShareTotal
+        const personalTotal    = personalExp.reduce((s, e) => s + (e.amount || 0), 0)
+        const householdTotal   = householdExp.reduce((s, e) => s + (e.amount || 0), 0)
+        const memberCount      = contributors.length + 1
+        const myShareTotal     = memberCount > 1 ? householdTotal / memberCount : householdTotal
+        const totalNeeded      = personalTotal + myShareTotal
         return (
           <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
