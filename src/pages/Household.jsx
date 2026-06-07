@@ -105,21 +105,21 @@ function YouCard({ monthlyIncome, myShare }) {
 }
 
 // ─── Contributor Card ─────────────────────────────────────────────────────────
-function ContributorCard({ contributor, myShareTotal, totalExpenses, onEdit, onDelete }) {
-  const color = avatarColor(contributor.name)
+function ContributorCard({ contributor, share, onEdit, onDelete }) {
+  const color     = avatarColor(contributor.name)
+  const remaining = (contributor.salary || 0) - share
+
   return (
     <div className="bg-bg-secondary border border-border-color rounded-xl p-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 mb-3">
         <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center shrink-0`}>
           <span className="text-white text-sm font-bold">{initials(contributor.name)}</span>
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-text-primary font-semibold text-sm">{contributor.name}</p>
-          {contributor.salary > 0 ? (
-            <p className="text-accent-secondary text-xs font-medium">{formatCurrency(contributor.salary)}/mo income</p>
-          ) : (
-            <p className="text-text-muted text-xs">Equal split member</p>
-          )}
+          {contributor.salary > 0
+            ? <p className="text-text-muted text-xs">{formatCurrency(contributor.salary)}/mo income</p>
+            : <p className="text-text-muted text-xs">No income set</p>}
         </div>
         <div className="flex gap-0.5 shrink-0">
           <button onClick={() => onEdit(contributor)} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors">
@@ -129,6 +129,20 @@ function ContributorCard({ contributor, myShareTotal, totalExpenses, onEdit, onD
             <Trash2 size={13}/>
           </button>
         </div>
+      </div>
+      <div className="space-y-1.5 border-t border-border-color pt-3">
+        <div className="flex justify-between text-xs">
+          <span className="text-text-muted">Household share</span>
+          <span className="text-accent-danger font-mono font-semibold">−{formatCurrency(share)}</span>
+        </div>
+        {contributor.salary > 0 && (
+          <div className="flex justify-between text-xs pt-1 border-t border-border-color">
+            <span className="text-text-secondary font-medium">Remaining</span>
+            <span className={`font-mono font-bold ${remaining >= 0 ? 'text-text-primary' : 'text-accent-danger'}`}>
+              {formatCurrency(remaining)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -251,8 +265,7 @@ export default function Household() {
             <ContributorCard
               key={c.id}
               contributor={c}
-              myShareTotal={myShare}
-              totalExpenses={totalHousehold}
+              share={myShare}
               onEdit={(c) => { setEditing(c); setShowForm(false) }}
               onDelete={handleDelete}
             />
