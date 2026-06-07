@@ -70,15 +70,14 @@ export default function JoinHousehold() {
     const uid = useAuthStore.getState().user?.uid
     const hid = invite.household_id
     try {
-      await Promise.all([
-        profileService.set(uid, { role: 'member', household_id: hid, name: name.trim() }),
-        householdDocService.addMember(hid, uid),
-        inviteService.redeem(token),
-      ])
+      await profileService.set(uid, { role: 'member', household_id: hid, name: name.trim() })
+      await householdDocService.addMember(hid, uid)
+      await inviteService.redeem(token)
       await initRole(uid)
       navigate('/')
     } catch (err) {
-      setFormErr('Account created but setup failed. Please try again.')
+      const msg = err?.code || err?.message || String(err)
+      setFormErr(`Setup failed: ${msg}`)
       setSubmitting(false)
     }
   }
