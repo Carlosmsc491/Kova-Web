@@ -45,6 +45,12 @@ function buildTimeline({ startBalance, effectiveExpenses, job1 }) {
     // Monthly expenses
     effectiveExpenses.forEach((e) => {
       if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
+        if (e.last_paid_date) {
+          const paid = new Date(e.last_paid_date)
+          if (paid.getFullYear() === date.getFullYear() && paid.getMonth() === date.getMonth()) {
+            return
+          }
+        }
         events.push({
           type:         'expense',
           name:         e.name,
