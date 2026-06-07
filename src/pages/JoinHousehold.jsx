@@ -70,7 +70,13 @@ export default function JoinHousehold() {
     const uid = useAuthStore.getState().user?.uid
     const hid = invite.household_id
     try {
-      await profileService.set(uid, { role: 'member', household_id: hid, name: name.trim() })
+      await profileService.set(uid, {
+        role:             'member',
+        household_id:     hid,
+        name:             name.trim(),
+        contributor_id:   invite.contributor_id   ?? null,
+        contributor_name: invite.contributor_name ?? null,
+      })
       await householdDocService.addMember(hid, uid)
       await inviteService.redeem(token)
       await initRole(uid)

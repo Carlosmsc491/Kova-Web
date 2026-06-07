@@ -232,12 +232,16 @@ export const householdDocService = {
     await setDoc(doc(db, 'households', hid), {
       owner_uid: ownerUid,
       member_uids: [ownerUid],
+      share_parts: 1,
       created_at: serverTimestamp(),
     })
     return hid
   },
   addMember: async (hid, uid) => {
     await updateDoc(doc(db, 'households', hid), { member_uids: arrayUnion(uid) })
+  },
+  setShareParts: async (hid, parts) => {
+    await updateDoc(doc(db, 'households', hid), { share_parts: parts })
   },
   getSharedExpenses: async (hid) => {
     const q = query(collection(db, 'households', hid, 'shared_expenses'), orderBy('name', 'asc'))
@@ -265,15 +269,17 @@ export const householdDocService = {
 // ── Invites ───────────────────────────────────────────────────────────────────
 
 export const inviteService = {
-  create: async (ownerUid, householdId, invitedEmail = null) => {
+  create: async (ownerUid, householdId, invitedEmail = null, contributorId = null, contributorName = null) => {
     const token = generateId()
     await setDoc(doc(db, 'invites', token), {
-      owner_uid:     ownerUid,
-      household_id:  householdId,
-      invited_email: invitedEmail ? invitedEmail.trim().toLowerCase() : null,
-      created_at:    serverTimestamp(),
-      expires_at:    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      used:          false,
+      owner_uid:        ownerUid,
+      household_id:     householdId,
+      invited_email:    invitedEmail ? invitedEmail.trim().toLowerCase() : null,
+      contributor_id:   contributorId,
+      contributor_name: contributorName,
+      created_at:       serverTimestamp(),
+      expires_at:       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      used:             false,
     })
     return token
   },

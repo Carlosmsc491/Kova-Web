@@ -31,7 +31,7 @@ function calcMyShare(totalExpenses, contributors) {
 }
 
 // ─── Contributor Form ─────────────────────────────────────────────────────────
-const BLANK = { name: '', salary: '' }
+const BLANK = { name: '', email: '', salary: '' }
 
 function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
   const [f, setF] = useState(initial || BLANK)
@@ -42,6 +42,7 @@ function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
     e.preventDefault()
     onSave({
       name:   f.name,
+      email:  f.email.trim().toLowerCase() || null,
       salary: parseFloat(f.salary) || null,
     })
   }
@@ -57,6 +58,10 @@ function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
       <div>
         <label className="text-xs text-text-muted mb-1 block">Name</label>
         <input className={inp} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Camila" required />
+      </div>
+      <div>
+        <label className="text-xs text-text-muted mb-1 block">Email <span className="text-text-muted">(for invite link)</span></label>
+        <input type="email" className={inp} value={f.email} onChange={(e) => set('email', e.target.value)} placeholder="camila@gmail.com" />
       </div>
       <div>
         <label className="text-xs text-text-muted mb-1 block">Monthly income ($)</label>
@@ -192,7 +197,7 @@ function SharedExpensesPanel({ expenses, myShare }) {
 // ─── Member view ──────────────────────────────────────────────────────────────
 function MemberHouseholdView({ householdId }) {
   const [sharedExpenses, setSharedExpenses] = useState([])
-  const [memberCount,    setMemberCount]    = useState(1)
+  const [shareParts,     setShareParts]     = useState(1)
   const [loading,        setLoading]        = useState(true)
 
   useEffect(() => {
@@ -201,12 +206,13 @@ function MemberHouseholdView({ householdId }) {
       householdDocService.get(householdId),
     ]).then(([expenses, hDoc]) => {
       setSharedExpenses(expenses)
-      setMemberCount(hDoc?.member_uids?.length ?? 1)
+      // Use share_parts if set (from invite generation), fallback to member_uids count
+      setShareParts(hDoc?.share_parts ?? hDoc?.member_uids?.length ?? 1)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [householdId])
 
-  const myShare = (amt) => amt / Math.max(memberCount, 1)
+  const myShare = (amt) => amt / Math.max(shareParts, 1)
   const totalShare = sharedExpenses.reduce((s, e) => s + myShare(e.total_amount || 0), 0)
 
   if (loading) return (
@@ -225,7 +231,7 @@ function MemberHouseholdView({ householdId }) {
       <div className="bg-gradient-to-br from-accent-primary/10 to-purple-900/5 border border-accent-primary/20 rounded-2xl p-4">
         <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Your Monthly Share</p>
         <p className="text-3xl font-bold font-display text-accent-primary">{formatCurrency(totalShare)}</p>
-        <p className="text-text-muted text-xs mt-1">{sharedExpenses.length} shared expenses · {memberCount} members</p>
+        <p className="text-text-muted text-xs mt-1">{sharedExpenses.length} shared expenses · split {shareParts} ways</p>
       </div>
 
       {sharedExpenses.length === 0 ? (
@@ -269,10 +275,11 @@ export default function Household() {
   const [showForm,  setShowForm]  = useState(false)
   const [editing,   setEditing]   = useState(null)
   const [saving,    setSaving]    = useState(false)
-  const [inviteLink,   setInviteLink]   = useState(null)
-  const [generating,   setGenerating]   = useState(false)
-  const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteEmail,    setInviteEmail]    = useState('')
+  const [inviteLink,         setInviteLink]         = useState(null)
+  const [generating,         setGenerating]         = useState(false)
+  const [showInviteForm,     setShowInviteForm]     = useState(false)
+  const [inviteEmail,        setInviteEmail]        = useState('')
+  const [selectedContribId,  setSelectedContribId]  = useState('')
 
   useEffect(() => { fetch(); fetchSources() }, [fetch, fetchSources])
 
@@ -283,11 +290,13 @@ export default function Household() {
     if (!inviteEmail.trim()) return
     setGenerating(true)
     try {
-      const token = await generateInvite(user.uid, householdExpenses, inviteEmail)
+      const contributor = contributors.find((c) => c.id === selectedContribId) ?? null
+      const token = await generateInvite(user.uid, householdExpenses, inviteEmail, contributor)
       const base  = window.location.href.split('#')[0]
       setInviteLink(`${base}#/join?token=${token}`)
       setShowInviteForm(false)
       setInviteEmail('')
+      setSelectedContribId('')
       toast.success('Invite link created!')
     } catch {
       toast.error('Failed to create invite')
@@ -347,8 +356,33 @@ export default function Household() {
       {showInviteForm && !inviteLink && (
         <form onSubmit={handleGenerateInvite} className="bg-accent-secondary/10 border border-accent-secondary/30 rounded-2xl p-4 space-y-3">
           <p className="text-text-primary font-semibold text-sm">Invite a household member</p>
+
+          {contributors.length > 0 && (
+            <div>
+              <label className="text-xs text-text-muted mb-1.5 block">Select contributor (optional)</label>
+              <select
+                value={selectedContribId}
+                onChange={(e) => {
+                  setSelectedContribId(e.target.value)
+                  const c = contributors.find((c) => c.id === e.target.value)
+                  if (c?.email) setInviteEmail(c.email)
+                }}
+                className="w-full bg-bg-secondary border border-border-color rounded-xl px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-accent-secondary transition-colors"
+              >
+                <option value="">— no specific contributor —</option>
+                {contributors.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
-            <label className="text-xs text-text-muted mb-1.5 block">Their email address</label>
+            <label className="text-xs text-text-muted mb-1.5 block">
+              {selectedContribId
+                ? `${contributors.find((c) => c.id === selectedContribId)?.name}'s email`
+                : 'Email address'}
+            </label>
             <input
               type="email" required
               value={inviteEmail}
@@ -358,6 +392,7 @@ export default function Household() {
             />
             <p className="text-text-muted text-xs mt-1">Only this email can use the invite link.</p>
           </div>
+
           <button type="submit" disabled={generating}
             className="w-full bg-accent-secondary text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50">
             {generating ? 'Creating…' : 'Generate Link'}
@@ -379,7 +414,7 @@ export default function Household() {
 
       {(showForm || editing) && (
         <ContributorForm
-          initial={editing ? { name: editing.name, salary: String(editing.salary ?? '') } : undefined}
+          initial={editing ? { name: editing.name, email: editing.email ?? '', salary: String(editing.salary ?? '') } : undefined}
           onSave={editing ? handleUpdate : handleCreate}
           onCancel={() => { setShowForm(false); setEditing(null) }}
           saving={saving}
