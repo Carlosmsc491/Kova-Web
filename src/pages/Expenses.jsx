@@ -3,8 +3,9 @@ import {
   Plus, Pencil, Trash2, Home, Car, Zap, Shield,
   Smartphone, Wifi, Tag, DollarSign, X, CheckCircle,
 } from 'lucide-react'
-import { useExpenseStore }  from '../stores/useExpenseStore'
-import { useAccountStore }  from '../stores/useAccountStore'
+import { useExpenseStore }    from '../stores/useExpenseStore'
+import { useAccountStore }    from '../stores/useAccountStore'
+import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency }   from '../lib/formatters'
 import { toast }            from '../stores/useToastStore'
 import { logEvent }         from '../stores/useHistoryStore'
@@ -64,7 +65,7 @@ function toForm(exp) {
 }
 
 // ─── Expense Form ─────────────────────────────────────────────────────────────
-function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing }) {
+function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, saving, isEditing }) {
   const [form, setForm] = useState(initial || BLANK)
   const [redistModal, setRedistModal] = useState(null)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
@@ -75,14 +76,14 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
     const newVal = !form.is_household
     if (newVal) {
       const total = parseFloat(form.amount) || 0
-      const share = total > 0 ? (total / 2).toFixed(2) : ''
+      const allMembers = [{ name: 'Me' }, ...householdMembers]
+      const count = allMembers.length
+      const share = total > 0 ? (total / count).toFixed(2) : ''
+      const contributors = allMembers.map((m) => ({ name: m.name, amount: share }))
       setForm((f) => ({
         ...f,
         is_household: true,
-        contributors: f.contributors.length > 0 ? f.contributors : [
-          { name: 'Me', amount: share },
-          { name: '', amount: share },
-        ],
+        contributors: f.contributors.length > 0 ? f.contributors : contributors,
         my_share: share,
       }))
     } else {
@@ -279,12 +280,9 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
 
             {form.contributors.map((contributor, idx) => (
               <div key={idx} className="flex gap-2 items-center">
-                <input
-                  className="flex-1 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors"
-                  value={contributor.name}
-                  onChange={(e) => updateContributorName(idx, e.target.value)}
-                  placeholder={idx === 0 ? 'Me' : `Person ${idx + 1}`}
-                />
+                <div className="flex-1 bg-bg-tertiary border border-border-color rounded-xl px-3 py-2 text-text-secondary text-sm truncate">
+                  {contributor.name || 'Me'}
+                </div>
                 <input
                   type="number" step="0.01" min="0"
                   className="w-28 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors"
@@ -292,12 +290,6 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
                   onChange={(e) => updateContributorAmount(idx, e.target.value)}
                   placeholder="0.00"
                 />
-                {idx > 0 && (
-                  <button type="button" onClick={() => removeContributor(idx)}
-                    className="p-1.5 text-text-muted hover:text-accent-danger transition-colors shrink-0">
-                    <X size={14}/>
-                  </button>
-                )}
               </div>
             ))}
 
@@ -309,10 +301,7 @@ function ExpenseForm({ initial, accounts, onSave, onCancel, saving, isEditing })
               </div>
             )}
 
-            <button type="button" onClick={addContributor}
-              className="flex items-center gap-1.5 text-xs text-accent-primary hover:text-accent-primary/70 transition-colors py-0.5">
-              <Plus size={12}/> Add contributor
-            </button>
+            <p className="text-text-muted text-xs">Manage members in the Household tab.</p>
 
             {/* Redistribution prompt */}
             {redistModal && (
@@ -435,12 +424,13 @@ function ExpenseRow({ expense, accounts, onEdit, onToggle, onDelete, onMarkPaid,
 export default function Expenses() {
   const { expenses, fetch, create, update, toggle, remove, markPaid, unmarkPaid, markInstallmentPayment } = useExpenseStore()
   const { accounts, fetch: fetchAccounts } = useAccountStore()
+  const { contributors: householdMembers, fetch: fetchHousehold } = useHouseholdStore()
   const [filter, setFilter]               = useState('all')
   const [showForm, setShowForm]           = useState(false)
   const [editing, setEditing]             = useState(null)
   const [saving, setSaving]               = useState(false)
 
-  useEffect(() => { fetch(); fetchAccounts() }, [fetch, fetchAccounts])
+  useEffect(() => { fetch(); fetchAccounts(); fetchHousehold() }, [fetch, fetchAccounts, fetchHousehold])
 
   const activeExpenses = expenses.filter((e) => !(e.expense_type === 'installment' && e.completed_at))
   const filtered = activeExpenses.filter((e) => {
@@ -507,6 +497,7 @@ export default function Expenses() {
         <ExpenseForm
           initial={editing ? toForm(editing) : undefined}
           accounts={accounts}
+          householdMembers={householdMembers}
           onSave={editing ? handleUpdate : handleCreate}
           onCancel={() => { setShowForm(false); setEditing(null) }}
           saving={saving}

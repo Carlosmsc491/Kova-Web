@@ -21,22 +21,14 @@ function avatarColor(name) {
   return AVATAR_COLORS[n % AVATAR_COLORS.length]
 }
 
-// Calculate the user's actual share given contributors and total
+// Always split equally among user + all contributors
 function calcMyShare(totalExpenses, contributors) {
   if (contributors.length === 0) return totalExpenses
-
-  const withFixed    = contributors.filter((c) => c.fixed_amount != null && c.fixed_amount > 0)
-  const withoutFixed = contributors.filter((c) => !(c.fixed_amount > 0))
-
-  const coveredByOthers  = withFixed.reduce((s, c) => s + (c.fixed_amount || 0), 0)
-  const remaining        = Math.max(0, totalExpenses - coveredByOthers)
-  // People who split the remaining: user + contributors with no fixed amount
-  const numSplitting     = withoutFixed.length + 1
-  return remaining / numSplitting
+  return totalExpenses / (contributors.length + 1)
 }
 
 // ─── Contributor Form ─────────────────────────────────────────────────────────
-const BLANK = { name: '', fixed_amount: '', salary: '' }
+const BLANK = { name: '', salary: '' }
 
 function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
   const [f, setF] = useState(initial || BLANK)
@@ -46,10 +38,8 @@ function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
   const handleSubmit = (e) => {
     e.preventDefault()
     onSave({
-      name:              f.name,
-      contribution_type: 'fixed',
-      fixed_amount:      parseFloat(f.fixed_amount) || null,
-      salary:            parseFloat(f.salary) || null,
+      name:   f.name,
+      salary: parseFloat(f.salary) || null,
     })
   }
 
@@ -65,17 +55,11 @@ function ContributorForm({ initial, onSave, onCancel, saving, isEditing }) {
         <label className="text-xs text-text-muted mb-1 block">Name</label>
         <input className={inp} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Camila" required />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Monthly contribution ($)</label>
-          <input type="number" step="0.01" min="0" className={inp} value={f.fixed_amount} onChange={(e) => set('fixed_amount', e.target.value)} placeholder="800" />
-        </div>
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Salary (optional)</label>
-          <input type="number" step="1" min="0" className={inp} value={f.salary} onChange={(e) => set('salary', e.target.value)} placeholder="4000" />
-        </div>
+      <div>
+        <label className="text-xs text-text-muted mb-1 block">Monthly income ($)</label>
+        <input type="number" step="1" min="0" className={inp} value={f.salary} onChange={(e) => set('salary', e.target.value)} placeholder="3000" />
       </div>
-      <p className="text-text-muted text-xs">Leave contribution empty to split the remainder equally.</p>
+      <p className="text-text-muted text-xs">Expenses split equally among all members.</p>
       <div className="flex gap-2">
         <button type="submit" disabled={saving} className="flex-1 bg-accent-primary text-white rounded-xl py-2 text-sm font-semibold disabled:opacity-50 transition-colors">
           {saving ? 'Saving…' : isEditing ? 'Update' : 'Add'}
@@ -131,13 +115,10 @@ function ContributorCard({ contributor, myShareTotal, totalExpenses, onEdit, onD
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-text-primary font-semibold text-sm">{contributor.name}</p>
-          {contributor.fixed_amount > 0 ? (
-            <p className="text-accent-secondary text-xs font-medium">{formatCurrency(contributor.fixed_amount)}/mo contribution</p>
+          {contributor.salary > 0 ? (
+            <p className="text-accent-secondary text-xs font-medium">{formatCurrency(contributor.salary)}/mo income</p>
           ) : (
-            <p className="text-text-muted text-xs">No contribution set — splits equally</p>
-          )}
-          {contributor.salary > 0 && (
-            <p className="text-text-muted text-xs">{formatCurrency(contributor.salary)}/mo salary</p>
+            <p className="text-text-muted text-xs">Equal split member</p>
           )}
         </div>
         <div className="flex gap-0.5 shrink-0">
@@ -245,7 +226,7 @@ export default function Household() {
 
       {(showForm || editing) && (
         <ContributorForm
-          initial={editing ? { name: editing.name, fixed_amount: String(editing.fixed_amount ?? ''), salary: String(editing.salary ?? '') } : undefined}
+          initial={editing ? { name: editing.name, salary: String(editing.salary ?? '') } : undefined}
           onSave={editing ? handleUpdate : handleCreate}
           onCancel={() => { setShowForm(false); setEditing(null) }}
           saving={saving}
