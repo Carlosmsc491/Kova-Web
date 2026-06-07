@@ -263,7 +263,7 @@ export default function Dashboard() {
           {formatCurrency(trulyAvailable)}
         </p>
         <p className="text-text-muted text-xs mt-1.5">
-          After all bills: {formatCurrency(safetyFloor)} · Balance: {formatCurrency(totalBalance)}
+          Balance: {formatCurrency(totalBalance)} · Still owed this month: {formatCurrency(unpaidThisMonth)}
         </p>
       </div>
 
