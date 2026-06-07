@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, Pencil, Trash2, Home, Car, Zap, Shield,
-  Smartphone, Wifi, Tag, DollarSign, X, CheckCircle,
+  Smartphone, Wifi, Tag, DollarSign, X, CheckCircle, Check,
 } from 'lucide-react'
 import { useExpenseStore }    from '../stores/useExpenseStore'
 import { useAccountStore }    from '../stores/useAccountStore'
@@ -43,9 +43,9 @@ const BLANK = {
 }
 
 function toForm(exp) {
-  let contributors = exp.contributors || []
+  let contributors = (exp.contributors || []).map((c) => ({ ...c, included: c.included !== false }))
   if ((exp.is_household === true || exp.is_household === 1) && contributors.length === 0) {
-    contributors = [{ name: 'Me', amount: exp.my_share != null ? String(exp.my_share) : '' }]
+    contributors = [{ name: 'Me', amount: exp.my_share != null ? String(exp.my_share) : '', included: true }]
   }
   return {
     name:             exp.name,
@@ -72,112 +72,93 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
   const inp = 'w-full bg-bg-primary border border-border-color rounded-xl px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors'
   const isInstallment = form.expense_type === 'installment'
 
+  // Build contributor list from household members (all included by default)
+  const buildFromMembers = (total) => {
+    const allMembers = [{ name: 'Me' }, ...householdMembers]
+    const share = total > 0 ? (total / allMembers.length).toFixed(2) : ''
+    return allMembers.map((m) => ({ name: m.name, amount: share, included: true }))
+  }
+
+  // When opening a household expense with no contributors saved, populate from members
+  useEffect(() => {
+    if (form.is_household && form.contributors.length === 0 && householdMembers.length > 0) {
+      const total = parseFloat(form.amount) || 0
+      const contribs = buildFromMembers(total)
+      setForm((f) => ({ ...f, contributors: contribs, my_share: contribs[0]?.amount || '' }))
+    }
+  }, [form.is_household, householdMembers.length])
+
   const handleHouseholdToggle = () => {
     const newVal = !form.is_household
     if (newVal) {
       const total = parseFloat(form.amount) || 0
-      const allMembers = [{ name: 'Me' }, ...householdMembers]
-      const count = allMembers.length
-      const share = total > 0 ? (total / count).toFixed(2) : ''
-      const contributors = allMembers.map((m) => ({ name: m.name, amount: share }))
-      setForm((f) => ({
-        ...f,
-        is_household: true,
-        contributors: f.contributors.length > 0 ? f.contributors : contributors,
-        my_share: share,
-      }))
+      const contribs = buildFromMembers(total)
+      setForm((f) => ({ ...f, is_household: true, contributors: contribs, my_share: contribs[0]?.amount || '' }))
     } else {
-      setForm((f) => ({ ...f, is_household: false }))
+      setForm((f) => ({ ...f, is_household: false, contributors: [] }))
     }
   }
 
   const splitEvenly = () => {
     const total = parseFloat(form.amount) || 0
-    const count = form.contributors.length
-    if (count === 0) return
-    const share = (total / count).toFixed(2)
-    setForm((f) => ({
-      ...f,
-      contributors: f.contributors.map((c) => ({ ...c, amount: share })),
-      my_share: share,
-    }))
+    const included = form.contributors.filter((c) => c.included)
+    if (included.length === 0 || total === 0) return
+    const share = (total / included.length).toFixed(2)
+    const newContribs = form.contributors.map((c) => c.included ? { ...c, amount: share } : { ...c, amount: '' })
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: newContribs[0]?.amount || '' }))
   }
 
-  const addContributor = () => {
+  const toggleContributor = (idx) => {
+    const next = form.contributors.map((c, i) => i === idx ? { ...c, included: !c.included } : c)
     const total = parseFloat(form.amount) || 0
-    const newContribs = [...form.contributors, { name: '', amount: '' }]
-    if (total > 0) {
-      const share = (total / newContribs.length).toFixed(2)
-      setForm((f) => ({
-        ...f,
-        contributors: newContribs.map((c) => ({ ...c, amount: share })),
-        my_share: share,
-      }))
+    const includedCount = next.filter((c) => c.included).length
+    if (total > 0 && includedCount > 0) {
+      const share = (total / includedCount).toFixed(2)
+      const split = next.map((c) => c.included ? { ...c, amount: share } : { ...c, amount: '' })
+      setForm((f) => ({ ...f, contributors: split, my_share: split[0]?.amount || '' }))
     } else {
-      setForm((f) => ({ ...f, contributors: newContribs }))
+      setForm((f) => ({ ...f, contributors: next }))
     }
-  }
-
-  const removeContributor = (idx) => {
-    if (idx === 0) return
-    const total = parseFloat(form.amount) || 0
-    setForm((f) => {
-      const next = f.contributors.filter((_, i) => i !== idx)
-      if (total > 0 && next.length > 0) {
-        const share = (total / next.length).toFixed(2)
-        const split = next.map((c) => ({ ...c, amount: share }))
-        return { ...f, contributors: split, my_share: share }
-      }
-      return { ...f, contributors: next }
-    })
-  }
-
-  const updateContributorName = (idx, name) => {
-    setForm((f) => ({
-      ...f,
-      contributors: f.contributors.map((c, i) => i === idx ? { ...c, name } : c),
-    }))
   }
 
   const updateContributorAmount = (idx, newVal) => {
     const newContribs = form.contributors.map((c, i) => i === idx ? { ...c, amount: newVal } : c)
     const total = parseFloat(form.amount) || 0
-    const sumAll = newContribs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
-    const gap = total - sumAll
+    const sumIncluded = newContribs.filter((c) => c.included).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
+    const gap = total - sumIncluded
     const myShare = parseFloat(newContribs[0]?.amount) || 0
     setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
-    if (Math.abs(gap) > 0.01 && newContribs.length > 1) {
+    const includedOthers = newContribs.filter((c, i) => c.included && i !== idx).length
+    if (Math.abs(gap) > 0.01 && includedOthers > 0) {
       setRedistModal({ changedIdx: idx, gap })
     }
   }
 
   const handleSplitAmongOthers = () => {
     const { changedIdx, gap } = redistModal
-    const othersCount = form.contributors.length - 1
-    const perPerson = gap / othersCount
+    const others = form.contributors.filter((c, i) => c.included && i !== changedIdx)
+    const perPerson = gap / others.length
     const newContribs = form.contributors.map((c, i) => {
-      if (i === changedIdx) return c
+      if (!c.included || i === changedIdx) return c
       return { ...c, amount: ((parseFloat(c.amount) || 0) + perPerson).toFixed(2) }
     })
-    const myShare = parseFloat(newContribs[0]?.amount) || 0
-    setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: newContribs[0]?.amount || '' }))
     setRedistModal(null)
   }
 
   const handleCoverMyself = () => {
     const { gap } = redistModal
-    const newContribs = form.contributors.map((c, i) => {
-      if (i === 0) return { ...c, amount: ((parseFloat(c.amount) || 0) + gap).toFixed(2) }
-      return c
-    })
-    const myShare = parseFloat(newContribs[0]?.amount) || 0
-    setForm((f) => ({ ...f, contributors: newContribs, my_share: String(myShare) }))
+    const newContribs = form.contributors.map((c, i) =>
+      i === 0 ? { ...c, amount: ((parseFloat(c.amount) || 0) + gap).toFixed(2) } : c
+    )
+    setForm((f) => ({ ...f, contributors: newContribs, my_share: newContribs[0]?.amount || '' }))
     setRedistModal(null)
   }
 
-  const contributorsSum = form.contributors.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
-  const totalAmount = parseFloat(form.amount) || 0
-  const allocationGap = totalAmount > 0 ? totalAmount - contributorsSum : 0
+  const includedContribs  = form.contributors.filter((c) => c.included)
+  const contributorsSum   = includedContribs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
+  const totalAmount       = parseFloat(form.amount) || 0
+  const allocationGap     = totalAmount > 0 ? totalAmount - contributorsSum : 0
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -192,7 +173,9 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
       my_share: myShareVal,
       notes: form.notes || null, expense_type: form.expense_type,
       contributors: form.is_household && form.contributors.length > 0
-        ? form.contributors.map((c, i) => ({ name: c.name || (i === 0 ? 'Me' : `Person ${i + 1}`), amount: parseFloat(c.amount) || 0 }))
+        ? form.contributors
+            .filter((c) => c.included)
+            .map((c, i) => ({ name: c.name || (i === 0 ? 'Me' : `Person ${i + 1}`), amount: parseFloat(c.amount) || 0 }))
         : null,
     }
     if (isInstallment) {
@@ -280,12 +263,21 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
 
             {form.contributors.map((contributor, idx) => (
               <div key={idx} className="flex gap-2 items-center">
-                <div className="flex-1 bg-bg-tertiary border border-border-color rounded-xl px-3 py-2 text-text-secondary text-sm truncate">
+                <button type="button" onClick={() => idx !== 0 && toggleContributor(idx)}
+                  className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                    contributor.included
+                      ? 'bg-accent-primary border-accent-primary'
+                      : 'border-border-color bg-bg-primary'
+                  } ${idx === 0 ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}>
+                  {contributor.included && <Check size={11} className="text-white" strokeWidth={3}/>}
+                </button>
+                <div className={`flex-1 bg-bg-tertiary border border-border-color rounded-xl px-3 py-2 text-sm truncate ${contributor.included ? 'text-text-primary' : 'text-text-muted'}`}>
                   {contributor.name || 'Me'}
                 </div>
                 <input
                   type="number" step="0.01" min="0"
-                  className="w-28 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors"
+                  disabled={!contributor.included}
+                  className="w-24 bg-bg-primary border border-border-color rounded-xl px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors disabled:opacity-40"
                   value={contributor.amount}
                   onChange={(e) => updateContributorAmount(idx, e.target.value)}
                   placeholder="0.00"
@@ -301,7 +293,7 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
               </div>
             )}
 
-            <p className="text-text-muted text-xs">Manage members in the Household tab.</p>
+            <p className="text-text-muted text-xs">Check/uncheck to include members in this expense.</p>
 
             {/* Redistribution prompt */}
             {redistModal && (
