@@ -1,10 +1,12 @@
 import { create } from 'zustand'
-import { householdService } from '../services/firestoreService'
+import { householdService, householdDocService, inviteService, profileService } from '../services/firestoreService'
 import { expenseService }   from '../services/firestoreService'
+import { useRoleStore } from './useRoleStore'
 
 export const useHouseholdStore = create((set, get) => ({
   contributors: [],
   householdExpenses: [],
+  householdId: null,
   loading: false,
 
   fetch: async () => {
@@ -38,5 +40,17 @@ export const useHouseholdStore = create((set, get) => ({
   deleteContributor: async (id) => {
     await householdService.removeContributor(id)
     await get().fetch()
+  },
+
+  generateInvite: async (ownerUid, householdExpenses) => {
+    let hid = useRoleStore.getState().householdId
+    if (!hid) {
+      hid = await householdDocService.create(ownerUid)
+      await profileService.set(ownerUid, { role: 'owner', household_id: hid })
+      useRoleStore.getState().setHouseholdId(hid)
+    }
+    await householdDocService.syncExpenses(hid, householdExpenses)
+    const token = await inviteService.create(ownerUid, hid)
+    return token
   },
 }))

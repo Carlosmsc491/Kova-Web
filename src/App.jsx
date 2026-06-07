@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useAuthStore } from './stores/useAuthStore'
-import UnlockScreen from './pages/UnlockScreen'
+import { useAuthStore }    from './stores/useAuthStore'
+import { useRoleStore }    from './stores/useRoleStore'
+import UnlockScreen        from './pages/UnlockScreen'
+import JoinHousehold       from './pages/JoinHousehold'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import Expenses from './pages/Expenses'
@@ -25,15 +27,23 @@ function PrivateRoute({ children }) {
 }
 
 export default function App() {
-  const { init } = useAuthStore()
+  const { init }   = useAuthStore()
+  const user       = useAuthStore((s) => s.user)
+  const authLoading = useAuthStore((s) => s.loading)
+  const initRole   = useRoleStore((s) => s.init)
 
   useEffect(() => { init() }, [init])
+
+  useEffect(() => {
+    if (!authLoading) initRole(user?.uid ?? null)
+  }, [user, authLoading, initRole])
 
   return (
     <HashRouter>
       <Toast />
       <Routes>
         <Route path="/unlock" element={<UnlockScreen />} />
+        <Route path="/join"   element={<JoinHousehold />} />
         <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="expenses" element={<Expenses />} />

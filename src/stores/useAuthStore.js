@@ -68,4 +68,29 @@ export const useAuthStore = create((set, get) => ({
   },
 
   isSetupDone: () => !!localStorage.getItem(SETUP_KEY),
+
+  registerMember: async (email, password) => {
+    set({ error: null, loading: true })
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      set({ user: cred.user, unlocked: true, loading: false })
+      return { ok: true, uid: cred.user.uid }
+    } catch (e) {
+      set({ error: e.message, loading: false })
+      return { ok: false, error: e.message }
+    }
+  },
+
+  signInMember: async (email, password) => {
+    set({ error: null, loading: true })
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password)
+      set({ user: cred.user, unlocked: true, loading: false })
+      return { ok: true }
+    } catch (e) {
+      const msg = e.code === 'auth/invalid-credential' ? 'Wrong email or password.' : e.message
+      set({ error: msg, loading: false })
+      return { ok: false, error: msg }
+    }
+  },
 }))

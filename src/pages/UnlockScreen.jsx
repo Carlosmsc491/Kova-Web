@@ -15,11 +15,15 @@ function PinDot({ filled }) {
 
 export default function UnlockScreen() {
   const navigate = useNavigate()
-  const { setupPin, unlock, isSetupDone, unlocked, loading, error } = useAuthStore()
+  const { setupPin, unlock, isSetupDone, signInMember, unlocked, loading, error } = useAuthStore()
   const [pin,     setPin]     = useState('')
   const [confirm, setConfirm] = useState('')
   const [step,    setStep]    = useState('pin') // 'pin' | 'confirm'
   const [shake,   setShake]   = useState(false)
+  const [mode,    setMode]    = useState('pin') // 'pin' | 'member'
+  const [memberEmail,    setMemberEmail]    = useState('')
+  const [memberPassword, setMemberPassword] = useState('')
+  const [memberError,    setMemberError]    = useState(null)
   const isSetup = !isSetupDone()
 
   useEffect(() => {
@@ -81,6 +85,87 @@ export default function UnlockScreen() {
 
   const currentPin = step === 'confirm' ? confirm : pin
   const pinLength  = isSetup ? 6 : 4
+
+  const handleMemberSignIn = async (e) => {
+    e.preventDefault()
+    setMemberError(null)
+    const result = await signInMember(memberEmail, memberPassword)
+    if (!result.ok) {
+      setMemberError(result.error || 'Sign in failed.')
+    }
+  }
+
+  const inp = 'w-full bg-bg-secondary border border-border-color rounded-xl px-3 py-3 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors placeholder:text-text-muted'
+
+  if (mode === 'member') {
+    return (
+      <div className="h-full bg-bg-primary flex flex-col items-center justify-center px-8">
+        {/* Logo */}
+        <div className="mb-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center mx-auto mb-4">
+            <span className="text-white text-2xl font-bold font-display">K</span>
+          </div>
+          <h1 className="text-2xl font-bold font-display text-text-primary">KOVA</h1>
+          <p className="text-text-muted text-sm mt-1">Personal Finance OS</p>
+        </div>
+
+        <div className="w-full max-w-xs">
+          <p className="text-text-secondary text-base mb-5 font-medium text-center">Household member sign in</p>
+
+          <form onSubmit={handleMemberSignIn} className="space-y-3">
+            <div>
+              <label className="text-xs text-text-muted mb-1.5 block">Email</label>
+              <input
+                type="email"
+                className={inp}
+                placeholder="you@example.com"
+                value={memberEmail}
+                onChange={(e) => setMemberEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1.5 block">Password</label>
+              <input
+                type="password"
+                className={inp}
+                placeholder="Your password"
+                value={memberPassword}
+                onChange={(e) => setMemberPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            {(memberError || error) && (
+              <p className="text-accent-danger text-xs text-center">{memberError || error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-accent-primary text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 transition-colors mt-1"
+            >
+              {loading
+                ? <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>
+                    Signing in…
+                  </span>
+                : 'Sign In'}
+            </button>
+          </form>
+
+          <button
+            onClick={() => setMode('pin')}
+            className="mt-5 text-text-muted text-xs text-center w-full hover:text-text-secondary transition-colors"
+          >
+            ← Back to PIN
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full bg-bg-primary flex flex-col items-center justify-center px-8">
@@ -145,6 +230,16 @@ export default function UnlockScreen() {
         <p className="text-text-muted text-xs mt-8 text-center">
           Forgot your PIN? Clear app data in Settings.
         </p>
+      )}
+
+      {/* Member sign in link */}
+      {!isSetup && (
+        <button
+          onClick={() => setMode('member')}
+          className="mt-4 text-text-muted text-xs text-center hover:text-text-secondary transition-colors"
+        >
+          Household member? Sign in →
+        </button>
       )}
     </div>
   )

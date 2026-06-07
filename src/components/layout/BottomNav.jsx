@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, DollarSign, Home, Landmark, MessageCircle } from 'lucide-react'
+import { useRoleStore } from '../../stores/useRoleStore'
 
-const TABS = [
+const ALL_TABS = [
   { to: '/',          label: 'Home',      Icon: LayoutDashboard },
   { to: '/income',    label: 'Income',    Icon: DollarSign },
   { to: '/household', label: 'Household', Icon: Home },
@@ -10,6 +11,8 @@ const TABS = [
 ]
 
 export default function BottomNav() {
+  const role = useRoleStore((s) => s.role)
+  const TABS = ALL_TABS.filter((t) => !(t.to === '/chat' && role === 'member'))
   return (
     <nav className="shrink-0 bg-bg-secondary border-t border-border-color safe-bottom">
       <div className="flex items-center justify-around h-16">

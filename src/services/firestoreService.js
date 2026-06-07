@@ -5,6 +5,7 @@
 import {
   collection, doc, getDocs, addDoc, updateDoc,
   deleteDoc, query, orderBy, serverTimestamp, where, limit,
+  getDoc, setDoc,
 } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 
@@ -201,5 +202,89 @@ export const chatService = {
   clearAll: async () => {
     const msgs = await fetchAll('chat_history', 'created_at')
     await Promise.all(msgs.map((m) => deleteDocById('chat_history', m.id)))
+  },
+}
+
+// ── User Profile ──────────────────────────────────────────────────────────────
+
+export const profileService = {
+  get: async (uid) => {
+    const snap = await getDoc(doc(db, 'user_profiles', uid))
+    return snap.exists() ? snap.data() : null
+  },
+  set: (uid, data) => setDoc(doc(db, 'user_profiles', uid), data, { merge: true }),
+}
+
+// ── Household document + shared expenses ──────────────────────────────────────
+
+function generateId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  return Array.from({ length: 16 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+export const householdDocService = {
+  get: async (hid) => {
+    const snap = await getDoc(doc(db, 'households', hid))
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null
+  },
+  create: async (ownerUid) => {
+    const hid = generateId()
+    await setDoc(doc(db, 'households', hid), {
+      owner_uid: ownerUid,
+      member_uids: [ownerUid],
+      created_at: serverTimestamp(),
+    })
+    return hid
+  },
+  addMember: async (hid, uid) => {
+    const snap = await getDoc(doc(db, 'households', hid))
+    const current = snap.data()?.member_uids ?? []
+    if (!current.includes(uid)) {
+      await updateDoc(doc(db, 'households', hid), { member_uids: [...current, uid] })
+    }
+  },
+  getSharedExpenses: async (hid) => {
+    const q = query(collection(db, 'households', hid, 'shared_expenses'), orderBy('name', 'asc'))
+    const snap = await getDocs(q)
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  },
+  syncExpenses: async (hid, expenses) => {
+    const colRef = collection(db, 'households', hid, 'shared_expenses')
+    const existing = await getDocs(colRef)
+    await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)))
+    await Promise.all(expenses.map((e) =>
+      addDoc(colRef, {
+        name:         e.name,
+        total_amount: e.amount || 0,
+        due_day:      e.due_day ?? null,
+        due_type:     e.due_type ?? 'monthly',
+        category:     e.category ?? 'other',
+        is_active:    e.is_active !== false && e.is_active !== 0,
+        created_at:   serverTimestamp(),
+      })
+    ))
+  },
+}
+
+// ── Invites ───────────────────────────────────────────────────────────────────
+
+export const inviteService = {
+  create: async (ownerUid, householdId) => {
+    const token = generateId()
+    await setDoc(doc(db, 'invites', token), {
+      owner_uid:    ownerUid,
+      household_id: householdId,
+      created_at:   serverTimestamp(),
+      expires_at:   new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      used:         false,
+    })
+    return token
+  },
+  get: async (token) => {
+    const snap = await getDoc(doc(db, 'invites', token))
+    return snap.exists() ? snap.data() : null
+  },
+  redeem: async (token) => {
+    await updateDoc(doc(db, 'invites', token), { used: true })
   },
 }
