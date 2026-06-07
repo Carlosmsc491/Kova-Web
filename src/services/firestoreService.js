@@ -5,7 +5,7 @@
 import {
   collection, doc, getDocs, addDoc, updateDoc,
   deleteDoc, query, orderBy, serverTimestamp, where, limit,
-  getDoc, setDoc,
+  getDoc, setDoc, arrayUnion,
 } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 
@@ -237,11 +237,7 @@ export const householdDocService = {
     return hid
   },
   addMember: async (hid, uid) => {
-    const snap = await getDoc(doc(db, 'households', hid))
-    const current = snap.data()?.member_uids ?? []
-    if (!current.includes(uid)) {
-      await updateDoc(doc(db, 'households', hid), { member_uids: [...current, uid] })
-    }
+    await updateDoc(doc(db, 'households', hid), { member_uids: arrayUnion(uid) })
   },
   getSharedExpenses: async (hid) => {
     const q = query(collection(db, 'households', hid, 'shared_expenses'), orderBy('name', 'asc'))
