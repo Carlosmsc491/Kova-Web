@@ -4,7 +4,7 @@
  */
 import {
   collection, doc, getDocs, addDoc, updateDoc,
-  deleteDoc, query, orderBy, serverTimestamp, where,
+  deleteDoc, query, orderBy, serverTimestamp, where, limit,
 } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 
@@ -180,9 +180,24 @@ export const transferService = {
 
 // ── Chat History ──────────────────────────────────────────────────────────────
 
+const CHAT_LIMIT = 30
+
 export const chatService = {
-  getHistory: () => fetchAll('chat_history', 'created_at'),
-  save: (role, content) => createDoc('chat_history', { role, content }),
+  getHistory: async () => {
+    // Fetch the most recent CHAT_LIMIT messages in one cheap query
+    const q = query(userCol('chat_history'), orderBy('created_at', 'desc'), limit(CHAT_LIMIT))
+    const snap = await getDocs(q)
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse()
+  },
+  save: async (role, content) => {
+    await createDoc('chat_history', { role, content })
+    // Trim old messages so storage never grows beyond CHAT_LIMIT + a small buffer
+    const all = await fetchAll('chat_history', 'created_at')
+    if (all.length > CHAT_LIMIT + 5) {
+      const excess = all.slice(0, all.length - CHAT_LIMIT)
+      await Promise.all(excess.map((m) => deleteDocById('chat_history', m.id)))
+    }
+  },
   clearAll: async () => {
     const msgs = await fetchAll('chat_history', 'created_at')
     await Promise.all(msgs.map((m) => deleteDocById('chat_history', m.id)))

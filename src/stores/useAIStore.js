@@ -25,8 +25,8 @@ export const useAIStore = create((set, get) => ({
     const next    = [...current, userMsg]
     set({ messages: next })
 
-    // Build history for API (last 20 msgs, without the user one we just added)
-    const history = next.slice(-21, -1).map((m) => ({ role: m.role, content: m.content }))
+    // Pass all loaded messages as context (capped at 30 by chatService)
+    const history = next.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
 
     try {
       const reply = await sendChatMessage(userMessage, snapshot, history)
