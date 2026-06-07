@@ -10,6 +10,7 @@ export default function JoinHousehold() {
   const navigate   = useNavigate()
 
   const registerMember = useAuthStore((s) => s.registerMember)
+  const signInMember   = useAuthStore((s) => s.signInMember)
   const initRole       = useRoleStore((s) => s.init)
 
   const [invite,     setInvite]     = useState(null)
@@ -50,10 +51,23 @@ export default function JoinHousehold() {
       return
     }
 
-    const result = await registerMember(email.trim(), password)
-    if (!result.ok) { setFormErr(result.error); setSubmitting(false); return }
+    let result = await registerMember(email.trim(), password)
 
-    const uid = result.uid
+    // If account exists from a failed previous attempt, sign in and complete setup
+    if (!result.ok && result.error?.toLowerCase().includes('already-in-use')) {
+      result = await signInMember(email.trim(), password)
+      if (!result.ok) {
+        setFormErr('An account with this email already exists. Use the same password you chose before, or contact the household owner.')
+        setSubmitting(false)
+        return
+      }
+    } else if (!result.ok) {
+      setFormErr(result.error)
+      setSubmitting(false)
+      return
+    }
+
+    const uid = useAuthStore.getState().user?.uid
     const hid = invite.household_id
     try {
       await Promise.all([
