@@ -347,7 +347,7 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
 }
 
 // ─── Expense Row ──────────────────────────────────────────────────────────────
-function ExpenseRow({ expense, accounts, onEdit, onToggle, onDelete, onMarkPaid, onUnmarkPaid, onMarkInstallment }) {
+function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete, onMarkPaid, onUnmarkPaid, onMarkInstallment }) {
   const cat        = CAT[expense.category] || CAT.other
   const CatIcon    = cat.Icon
   const inactive   = expense.is_active === false || expense.is_active === 0
@@ -383,14 +383,9 @@ function ExpenseRow({ expense, accounts, onEdit, onToggle, onDelete, onMarkPaid,
           <>
             <p className="text-text-muted text-xs mt-0.5">{expense.due_type === 'monthly' ? `${ordinal(expense.due_day)} of month` : 'Every 2 weeks'}</p>
             {(expense.is_household === true || expense.is_household === 1) && (
-              <>
-                {expense.my_share != null && (
-                  <p className="text-accent-primary text-xs mt-0.5 font-medium">My share: {formatCurrency(expense.my_share)}</p>
-                )}
-                {expense.contributors && expense.contributors.length > 1 && (
-                  <p className="text-text-muted text-xs mt-0.5">{expense.contributors.length} contributors</p>
-                )}
-              </>
+              <p className="text-accent-primary text-xs mt-0.5 font-medium">
+                My share: {formatCurrency((expense.amount || 0) / memberCount)}
+              </p>
             )}
           </>
         )}
@@ -443,7 +438,8 @@ export default function Expenses() {
   const personalTotal  = activeOnly.filter((e) => e.is_household !== true && e.is_household !== 1).reduce((s, e) => s + (e.amount || 0), 0)
   const householdExpenses = activeOnly.filter((e) => e.is_household === true || e.is_household === 1)
   const householdTotal = householdExpenses.reduce((s, e) => s + (e.amount || 0), 0)
-  const myShareTotal   = householdExpenses.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
+  const memberCount    = householdMembers.length + 1  // +1 for Me
+  const myShareTotal   = memberCount > 1 ? householdTotal / memberCount : householdTotal
 
   const handleCreate = async (payload) => {
     setSaving(true)
@@ -486,9 +482,9 @@ export default function Expenses() {
           <p className="text-2xl font-bold font-display text-accent-danger">{formatCurrency(personalTotal)}</p>
         </div>
         <div className="bg-bg-secondary border border-border-color rounded-2xl p-3.5">
-          <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Shared</p>
-          <p className="text-2xl font-bold font-display text-accent-primary">{formatCurrency(householdTotal)}</p>
-          <p className="text-accent-primary/80 text-xs font-medium mt-0.5">My share: {formatCurrency(myShareTotal)}</p>
+          <p className="text-text-muted text-xs uppercase tracking-wider mb-1">Household</p>
+          <p className="text-2xl font-bold font-display text-accent-primary">{formatCurrency(myShareTotal)}</p>
+          <p className="text-accent-primary/80 text-xs font-medium mt-0.5">of {formatCurrency(householdTotal)} total</p>
         </div>
       </div>
 
@@ -531,6 +527,7 @@ export default function Expenses() {
               key={expense.id}
               expense={expense}
               accounts={accounts}
+              memberCount={memberCount}
               onEdit={(e) => { setEditing(e); setShowForm(false) }}
               onToggle={toggle}
               onDelete={handleDelete}
