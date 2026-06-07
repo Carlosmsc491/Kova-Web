@@ -11,8 +11,8 @@ import { useGoalsStore }      from '../stores/useGoalsStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency, formatDate, formatPercent } from '../lib/formatters'
-import { getNextPaycheckDate, daysUntil }            from '../lib/dateUtils'
-import { calculateTrulyAvailable, buildPaymentCalendar } from '../lib/budgetEngine'
+import { getNextPaycheckDate, getNextPaycheckDates, daysUntil, parseISO, toISO } from '../lib/dateUtils'
+import { buildPaymentCalendar } from '../lib/budgetEngine'
 
 // ─── count-up hook ────────────────────────────────────────────────────────────
 function useCountUp(target, duration = 700) {
@@ -193,7 +193,7 @@ export default function Dashboard() {
   const activeExpenses = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
   const memberCount    = contributors.length + 1
 
-  // For budget projections use only the user's share of household expenses
+  // Use the user's share of household expenses for all budget calculations
   const effectiveExpenses = activeExpenses.map((e) => {
     if ((e.is_household === true || e.is_household === 1) && memberCount > 1) {
       return { ...e, amount: (e.amount || 0) / memberCount }
@@ -201,15 +201,33 @@ export default function Dashboard() {
     return e
   })
 
-  const budgetData = calculateTrulyAvailable({
-    currentBalance: totalBalance,
-    expenses: effectiveExpenses,
-    job1Source: job1,
-  })
+  // ── Truly Available (inline, avoids paycheck-date matching bugs) ─────────────
+  // Expenses not yet paid this billing cycle
+  const now = new Date()
+  const unpaidThisMonth = effectiveExpenses.reduce((sum, e) => {
+    if (e.due_type !== 'monthly') return sum
+    if (e.last_paid_date) {
+      const paid = new Date(e.last_paid_date)
+      const sameMonth = paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
+      if (sameMonth) return sum // already paid this month
+    }
+    return sum + (e.amount || 0)
+  }, 0)
+
+  const trulyAvailable = Math.max(0, totalBalance - unpaidThisMonth)
+  const monthlyExpenseTotal = effectiveExpenses.reduce((s, e) =>
+    e.due_type === 'monthly' ? s + (e.amount || 0) : s, 0)
+  const safetyFloor = totalBalance - monthlyExpenseTotal
+
+  // ── Payment calendar with reliable paycheck detection ────────────────────────
+  const paycheckDateList = job1?.last_paycheck_date
+    ? getNextPaycheckDates(job1.last_paycheck_date, 8)
+    : []
 
   const calendarEvents = buildPaymentCalendar({
     expenses: effectiveExpenses,
     job1Source: job1,
+    paycheckDateList,
   })
 
   // Next paycheck
@@ -234,10 +252,10 @@ export default function Dashboard() {
       >
         <p className="text-text-muted text-xs uppercase tracking-wider font-medium mb-1">Truly Available</p>
         <p className="text-4xl font-bold font-display text-accent-primary">
-          {formatCurrency(budgetData.truly_available)}
+          {formatCurrency(trulyAvailable)}
         </p>
         <p className="text-text-muted text-xs mt-1.5">
-          Safety floor: {formatCurrency(budgetData.safety_floor)} · Balance: {formatCurrency(totalBalance)}
+          After all bills: {formatCurrency(safetyFloor)} · Balance: {formatCurrency(totalBalance)}
         </p>
       </div>
 

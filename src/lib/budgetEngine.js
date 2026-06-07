@@ -78,17 +78,14 @@ export function calculateTrulyAvailable(params) {
 
 /**
  * Build 14-day payment calendar (upcoming expenses + income events).
+ * paycheckDateList: pre-computed list of upcoming paycheck date strings (YYYY-MM-DD)
  */
 export function buildPaymentCalendar(params) {
-  const { expenses = [], job1Source = null, horizonDays = 14 } = params
+  const { expenses = [], job1Source = null, paycheckDateList = [], horizonDays = 14 } = params
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
   const events = []
-
-  const paycheckDates = job1Source?.last_paycheck_date
-    ? getNextPaycheckDates(job1Source.last_paycheck_date, 4)
-    : []
 
   for (let i = 0; i <= horizonDays; i++) {
     const date = new Date(today)
@@ -96,12 +93,12 @@ export function buildPaymentCalendar(params) {
     const dateStr = toISO(date)
     const dom     = date.getDate()
 
-    // Paycheck
-    if (paycheckDates.includes(dateStr) && job1Source?.amount_per_period) {
+    // Paycheck — use the pre-computed list passed in from the caller
+    if (paycheckDateList.includes(dateStr) && job1Source?.amount_per_period) {
       events.push({
         date:   dateStr,
         name:   job1Source.name || 'Job 1 Paycheck',
-        amount: job1Source.amount_per_period,
+        amount: Number(job1Source.amount_per_period),
         type:   'income',
       })
     }
