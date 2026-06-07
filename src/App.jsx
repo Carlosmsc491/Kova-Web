@@ -10,6 +10,7 @@ import Credit from './pages/Credit'
 import Goals from './pages/Goals'
 import Chat from './pages/Chat'
 import History from './pages/History'
+import Household from './pages/Household'
 import Toast from './components/shared/Toast'
 
 function PrivateRoute({ children }) {
@@ -38,7 +39,8 @@ export default function App() {
           <Route path="credit"   element={<Credit />} />
           <Route path="goals"    element={<Goals />} />
           <Route path="chat"     element={<Chat />} />
-          <Route path="history"  element={<History />} />
+          <Route path="history"   element={<History />} />
+          <Route path="household" element={<Household />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1,12 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, DollarSign, CreditCard, Target, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, DollarSign, Home, Target, MessageCircle } from 'lucide-react'
 
 const TABS = [
-  { to: '/',        label: 'Home',     Icon: LayoutDashboard },
-  { to: '/income',  label: 'Income',   Icon: DollarSign },
-  { to: '/credit',  label: 'Credit',   Icon: CreditCard },
-  { to: '/goals',   label: 'Goals',    Icon: Target },
-  { to: '/chat',    label: 'Chat',     Icon: MessageCircle },
+  { to: '/',          label: 'Home',      Icon: LayoutDashboard },
+  { to: '/income',    label: 'Income',    Icon: DollarSign },
+  { to: '/household', label: 'Household', Icon: Home },
+  { to: '/goals',     label: 'Goals',     Icon: Target },
+  { to: '/chat',      label: 'Chat',      Icon: MessageCircle },
 ]
 
 export default function BottomNav() {

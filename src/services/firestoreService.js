@@ -147,6 +147,21 @@ export const historyService = {
     }),
 }
 
+// ── Household ─────────────────────────────────────────────────────────────────
+
+export const householdService = {
+  getContributors: () => fetchAll('household_contributors'),
+  createContributor: (data) => createDoc('household_contributors', data),
+  updateContributor: (id, data) => updateDocById('household_contributors', id, data),
+  removeContributor: (id) => deleteDocById('household_contributors', id),
+  getHead: async () => (await fetchAll('household_settings', 'created_at'))[0] || null,
+  setHead: async (headId) => {
+    const settings = await fetchAll('household_settings', 'created_at')
+    if (settings.length > 0) return updateDocById('household_settings', settings[0].id, { head_id: headId })
+    return createDoc('household_settings', { head_id: headId })
+  },
+}
+
 // ── Accounts (manual) ─────────────────────────────────────────────────────────
 
 export const accountService = {
