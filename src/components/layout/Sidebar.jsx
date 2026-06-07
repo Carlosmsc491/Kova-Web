@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { X, ReceiptText, CreditCard, Target, Clock } from 'lucide-react'
+import { X, ReceiptText, CreditCard, Target, Clock, TrendingUp } from 'lucide-react'
 
 const ITEMS = [
-  { to: '/expenses', label: 'Expenses', Icon: ReceiptText },
-  { to: '/credit',   label: 'Credit',   Icon: CreditCard },
-  { to: '/goals',    label: 'Goals',    Icon: Target },
-  { to: '/history',  label: 'History',  Icon: Clock },
+  { to: '/cashflow', label: 'Cash Flow', Icon: TrendingUp },
+  { to: '/expenses', label: 'Expenses',  Icon: ReceiptText },
+  { to: '/credit',   label: 'Credit',    Icon: CreditCard },
+  { to: '/goals',    label: 'Goals',     Icon: Target },
+  { to: '/history',  label: 'History',   Icon: Clock },
 ]
 
 export default function Sidebar({ open, onClose }) {

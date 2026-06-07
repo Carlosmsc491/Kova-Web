@@ -12,6 +12,7 @@ import Chat from './pages/Chat'
 import History from './pages/History'
 import Household from './pages/Household'
 import Accounts from './pages/Accounts'
+import CashFlow from './pages/CashFlow'
 import Toast from './components/shared/Toast'
 
 function PrivateRoute({ children }) {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="history"   element={<History />} />
           <Route path="household" element={<Household />} />
           <Route path="accounts"  element={<Accounts />} />
+          <Route path="cashflow"  element={<CashFlow />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

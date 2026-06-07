@@ -12,6 +12,7 @@ const TITLES = {
   '/chat':      'AI Assistant',
   '/history':   'History',
   '/household': 'Household',
+  '/cashflow':  'Cash Flow',
 }
 
 export default function TopBar({ onMenuOpen }) {
