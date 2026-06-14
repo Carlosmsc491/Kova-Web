@@ -106,7 +106,7 @@ function Bubble({ msg }) {
           : 'bg-bg-secondary border border-border-color text-text-secondary rounded-2xl rounded-tl-sm'
       }`}>
         {isUser
-          ? msg.content
+          ? <span className="whitespace-pre-wrap">{msg.content}</span>
           : <ReactMarkdown components={mdComponents}>{msg.content}</ReactMarkdown>}
       </div>
     </div>
