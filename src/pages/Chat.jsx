@@ -97,7 +97,7 @@ function cleanAIResponse(text) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-���───────────────────────────────────────────────────
+// Markdown components
 const mdComponents = {
   p:      ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
   strong: ({ children }) => <strong className="font-bold text-text-primary">{children}</strong>,
