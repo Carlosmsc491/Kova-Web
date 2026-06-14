@@ -146,7 +146,7 @@ export default function Chat() {
   }
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSend() }
   }
 
   const apiKeyMissing = !import.meta.env.VITE_ANTHROPIC_API_KEY
@@ -211,7 +211,7 @@ export default function Chat() {
             <Send size={13}/>
           </button>
         </div>
-        <p className="text-text-muted text-xs mt-1.5 text-center">Enter to send · Shift+Enter new line</p>
+        <p className="text-text-muted text-xs mt-1.5 text-center">Tap → to send · ⌘Enter on desktop</p>
       </div>
     </div>
   )
