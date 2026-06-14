@@ -19,10 +19,17 @@ function isPaidThisCycle(expense) {
 }
 
 // ─── snapshot builder ─────────────────────────────────────────────────────────
+function nextBiweeklyDate(lastPaidDateStr) {
+  if (!lastPaidDateStr) return null
+  const d = new Date(lastPaidDateStr + 'T12:00:00')
+  d.setDate(d.getDate() + 14)
+  return d.toISOString().split('T')[0]
+}
+
 function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goals }) {
-  const job1 = sources.find((s) => s.type === 'biweekly')
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const unpaidDays   = job2Days.filter((d) => !d.paid)
+  const today        = new Date().toISOString().split('T')[0]
 
   const active = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
   const personal  = active.filter((e) => e.is_household !== true && e.is_household !== 1)
@@ -32,9 +39,16 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
   const myShareTotal  = household.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
 
   return {
+    today,
     total_balance:      totalBalance,
     accounts:           accounts.map((a) => ({ name: a.name, institution: a.institution, balance: a.current_balance })),
-    income_sources:     sources.map((s) => ({ name: s.name, type: s.type, amount: s.amount_per_period || s.daily_rate })),
+    income_sources:     sources.map((s) => ({
+      name:              s.name,
+      type:              s.type,
+      amount_per_period: s.amount_per_period || s.daily_rate,
+      last_paid_date:    s.last_paid_date ?? null,
+      next_payment_date: s.type === 'biweekly' ? nextBiweeklyDate(s.last_paid_date) : null,
+    })),
     job2_pending:       unpaidDays.reduce((s, d) => s + (d.day_rate ?? 110), 0),
     job2_unpaid_days:   unpaidDays.length,
     personal_expenses:  personal.map((e) => ({
