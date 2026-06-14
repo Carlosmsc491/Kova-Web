@@ -43,6 +43,7 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
     total_balance:      totalBalance,
     accounts:           accounts.map((a) => ({ id: a.id, name: a.name, institution: a.institution, balance: a.current_balance })),
     income_sources:     sources.map((s) => ({
+      id:                s.id,
       name:              s.name,
       type:              s.type,
       amount_per_period: s.amount_per_period || s.daily_rate,
