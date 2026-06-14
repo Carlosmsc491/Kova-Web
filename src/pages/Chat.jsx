@@ -41,7 +41,7 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
   return {
     today,
     total_balance:      totalBalance,
-    accounts:           accounts.map((a) => ({ name: a.name, institution: a.institution, balance: a.current_balance })),
+    accounts:           accounts.map((a) => ({ id: a.id, name: a.name, institution: a.institution, balance: a.current_balance })),
     income_sources:     sources.map((s) => ({
       name:              s.name,
       type:              s.type,
@@ -52,20 +52,20 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
     job2_pending:       unpaidDays.reduce((s, d) => s + (d.day_rate ?? 110), 0),
     job2_unpaid_days:   unpaidDays.length,
     personal_expenses:  personal.map((e) => ({
-      name: e.name, amount: e.amount, category: e.category, due_day: e.due_day,
+      id: e.id, name: e.name, amount: e.amount, category: e.category, due_day: e.due_day,
       paid_this_cycle: isPaidThisCycle(e),
     })),
     household_expenses: household.map((e) => ({
-      name: e.name, total_amount: e.amount, my_share: e.my_share ?? e.amount,
+      id: e.id, name: e.name, total_amount: e.amount, my_share: e.my_share ?? e.amount,
       category: e.category, due_day: e.due_day,
       paid_this_cycle: isPaidThisCycle(e),
     })),
     monthly_personal_total: personalTotal,
     monthly_my_share_total: myShareTotal,
     monthly_total_obligation: personalTotal + myShareTotal,
-    credit_cards:       utilization?.cards?.map((c) => ({ name: c.name, balance: c.current_balance, limit: c.credit_limit, apr: c.apr, utilization: c.utilization_pct?.toFixed(1) + '%' })) ?? [],
+    credit_cards:       utilization?.cards?.map((c) => ({ id: c.id, name: c.name, balance: c.current_balance, limit: c.credit_limit, apr: c.apr, utilization: c.utilization_pct?.toFixed(1) + '%' })) ?? [],
     credit_utilization: utilization?.total_utilization_pct?.toFixed(1) + '%',
-    active_goals:       goals.map((g) => ({ name: g.name, current: g.current_amount, target: g.target_amount, progress: g.target_amount > 0 ? ((g.current_amount/g.target_amount)*100).toFixed(0) + '%' : '0%' })),
+    active_goals:       goals.map((g) => ({ id: g.id, name: g.name, current: g.current_amount, target: g.target_amount, progress: g.target_amount > 0 ? ((g.current_amount/g.target_amount)*100).toFixed(0) + '%' : '0%' })),
   }
 }
 

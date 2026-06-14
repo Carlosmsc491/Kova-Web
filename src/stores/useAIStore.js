@@ -2,6 +2,16 @@ import { create } from 'zustand'
 import { sendChatMessage } from '../services/aiService'
 import { chatService } from '../services/firestoreService'
 
+// Lazy-loaded store refreshers — imported at call time to avoid circular deps
+function refreshStores(actionNames) {
+  if (!actionNames?.length) return
+  const has = (n) => actionNames.some((a) => a.includes(n))
+  if (has('expense')) import('./useExpenseStore').then(({ useExpenseStore }) => useExpenseStore.getState().fetch())
+  if (has('account')) import('./useAccountStore').then(({ useAccountStore }) => useAccountStore.getState().fetch())
+  if (has('credit_card')) import('./useCreditStore').then(({ useCreditStore }) => useCreditStore.getState().fetch())
+  if (has('goal')) import('./useGoalsStore').then(({ useGoalsStore }) => useGoalsStore.getState().fetch())
+}
+
 export const useAIStore = create((set, get) => ({
   messages:    [],
   loading:     false,
@@ -25,20 +35,21 @@ export const useAIStore = create((set, get) => ({
     const next    = [...current, userMsg]
     set({ messages: next })
 
-    // Pass all loaded messages as context (capped at 30 by chatService)
     const history = next.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
 
     try {
-      const reply = await sendChatMessage(userMessage, snapshot, history)
-      const assistantMsg = { role: 'assistant', content: reply, id: Date.now() + 1 }
+      const { text, actionsExecuted } = await sendChatMessage(userMessage, snapshot, history)
+      const assistantMsg = { role: 'assistant', content: text, id: Date.now() + 1 }
 
       set((s) => ({ messages: [...s.messages, assistantMsg], loading: false }))
 
-      // Persist both messages to Firestore (best effort)
-      chatService.save('user', userMessage).catch(() => {})
-      chatService.save('assistant', reply).catch(() => {})
+      // Refresh affected stores so UI reflects changes immediately
+      if (actionsExecuted?.length) refreshStores(actionsExecuted)
 
-      return reply
+      chatService.save('user', userMessage).catch(() => {})
+      chatService.save('assistant', text).catch(() => {})
+
+      return text
     } catch (e) {
       set({ error: e.message, loading: false })
       const errMsg = { role: 'assistant', content: `Error: ${e.message}`, id: Date.now() + 1 }

@@ -53,7 +53,7 @@ export async function sendChatMessage(userMessage, snapshot, history = []) {
   // Try Cloud Function first (secure path)
   try {
     const result = await chatFn({ message: userMessage, snapshot, history })
-    return result.data.text
+    return { text: result.data.text, actionsExecuted: result.data.actionsExecuted ?? [] }
   } catch (fnError) {
     // If Cloud Function not deployed yet, fall back to direct API (dev only)
     if (fnError.code === 'functions/not-found' || fnError.code === 'functions/unavailable') {
@@ -100,5 +100,5 @@ async function sendDirectAPI(userMessage, snapshot, history) {
   }
 
   const data = await response.json()
-  return data.content[0]?.text ?? ''
+  return { text: data.content[0]?.text ?? '', actionsExecuted: [] }
 }
