@@ -69,7 +69,35 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
   }
 }
 
-// ─── Markdown components ──���───────────────────────────────────────────────────
+// ─── Clean AI response — strip markdown tables and horizontal rules ───────────
+function cleanAIResponse(text) {
+  const lines = text.split('\n')
+  const out   = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line    = lines[i]
+    const trimmed = line.trim()
+
+    // Skip separator rows like |---|---| or |:---|:---|
+    if (/^\|[\s\-:]+(\|[\s\-:]+)*\|?$/.test(trimmed)) continue
+
+    // Skip bare horizontal rules
+    if (/^[-*_]{3,}$/.test(trimmed)) continue
+
+    // Convert table data rows: | A | B | C | → - A · B · C
+    if (trimmed.startsWith('|')) {
+      const cells = trimmed.split('|').map((c) => c.trim()).filter(Boolean)
+      if (cells.length > 0) out.push(`- ${cells.join(' · ')}`)
+      continue
+    }
+
+    out.push(line)
+  }
+
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+���───────────────────────────────────────────────────
 const mdComponents = {
   p:      ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
   strong: ({ children }) => <strong className="font-bold text-text-primary">{children}</strong>,
@@ -106,7 +134,8 @@ function TypingIndicator() {
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 function Bubble({ msg }) {
-  const isUser = msg.role === 'user'
+  const isUser  = msg.role === 'user'
+  const content = isUser ? msg.content : cleanAIResponse(msg.content)
   return (
     <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
       {!isUser && (
@@ -120,8 +149,8 @@ function Bubble({ msg }) {
           : 'bg-bg-secondary border border-border-color text-text-secondary rounded-2xl rounded-tl-sm'
       }`}>
         {isUser
-          ? <span className="whitespace-pre-wrap">{msg.content}</span>
-          : <ReactMarkdown components={mdComponents}>{msg.content}</ReactMarkdown>}
+          ? <span className="whitespace-pre-wrap">{content}</span>
+          : <ReactMarkdown components={mdComponents}>{content}</ReactMarkdown>}
       </div>
     </div>
   )
