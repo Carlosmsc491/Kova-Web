@@ -124,6 +124,19 @@ function DayCard({ day, startBalance, minBalance }) {
       {events.length > 0 && (
         <div className="border-t border-border-color pt-2 mb-2">
           {events.map((e, i) => <EventRow key={i} event={e} />)}
+          {/* Totals row — only when there are 2+ events or mixed in/out */}
+          {(events.length > 1 || (hasIncome && hasExpense)) && (
+            <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-border-color/50">
+              <span className="text-text-muted text-xs">
+                {hasIncome && hasExpense ? 'Net' : hasExpense ? 'Total expenses' : 'Total income'}
+              </span>
+              <span className={`font-mono text-xs font-bold ${
+                (dayIn - dayOut) >= 0 ? 'text-accent-secondary' : 'text-accent-danger'
+              }`}>
+                {(dayIn - dayOut) >= 0 ? '+' : '−'}{formatCurrency(Math.abs(dayIn - dayOut))}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
