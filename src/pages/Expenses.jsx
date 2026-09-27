@@ -20,7 +20,14 @@ const CATEGORIES = [
   { key: 'other',     Icon: Tag,        label: 'Other',      color: 'text-text-muted' },
 ]
 const CAT = Object.fromEntries(CATEGORIES.map((c) => [c.key, c]))
-const DUE_TYPES = [{ key: 'monthly', label: 'Monthly' }, { key: 'biweekly', label: 'Biweekly' }, { key: 'one-time', label: 'One-time' }]
+const DUE_TYPES = [
+  { key: 'monthly',  label: 'Monthly'   },
+  { key: 'weekly',   label: 'Weekly'    },
+  { key: 'biweekly', label: 'Biweekly'  },
+  { key: 'one-time', label: 'One-time'  },
+]
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function ordinal(n) {
   const v = n % 100
@@ -31,6 +38,7 @@ function isPaidThisCycle(expense) {
   if (!expense.last_paid_date) return false
   const paid = new Date(expense.last_paid_date)
   const now  = new Date()
+  if (expense.due_type === 'weekly')   return (now - paid) / 86400000 < 7
   if (expense.due_type === 'biweekly') return (now - paid) / 86400000 < 14
   return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
 }
@@ -50,7 +58,7 @@ function toForm(exp) {
   return {
     name:             exp.name,
     amount:           String(exp.amount),
-    due_day:          String(exp.due_day || 1),
+    due_day:          String(exp.due_day ?? 1),
     due_type:         exp.due_type || 'monthly',
     account_id:       String(exp.account_id || ''),
     category:         exp.category || 'other',
@@ -231,10 +239,20 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
             </select>
           </div>
         )}
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Due Day</label>
-          <input type="number" min="1" max="31" className={inp} value={form.due_day} onChange={(e) => set('due_day', e.target.value)} required />
-        </div>
+        {form.due_type === 'monthly' && (
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Due Day</label>
+            <input type="number" min="1" max="31" className={inp} value={form.due_day} onChange={(e) => set('due_day', e.target.value)} required />
+          </div>
+        )}
+        {form.due_type === 'weekly' && (
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Day of Week</label>
+            <select className={inp} value={form.due_day} onChange={(e) => set('due_day', e.target.value)}>
+              {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          </div>
+        )}
         <div className="col-span-2">
           <label className="text-xs text-text-muted mb-1 block">Paid From (optional)</label>
           <select className={inp} value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
@@ -373,7 +391,13 @@ function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete
           </>
         ) : (
           <>
-            <p className="text-text-muted text-xs mt-0.5">{expense.due_type === 'monthly' ? `${ordinal(expense.due_day)} of month` : 'Every 2 weeks'}</p>
+            <p className="text-text-muted text-xs mt-0.5">
+              {expense.due_type === 'monthly'
+                ? `${ordinal(expense.due_day)} of month`
+                : expense.due_type === 'weekly'
+                ? `Every week · ${DAYS_SHORT[expense.due_day ?? 1] ?? 'Mon'}`
+                : 'Every 2 weeks'}
+            </p>
             {(expense.is_household === true || expense.is_household === 1) && (
               <p className="text-accent-primary text-xs mt-0.5 font-medium">
                 My share: {formatCurrency((expense.amount || 0) / memberCount)}

@@ -205,18 +205,28 @@ export default function Dashboard() {
   // Expenses not yet paid this billing cycle
   const now = new Date()
   const unpaidThisMonth = effectiveExpenses.reduce((sum, e) => {
+    if (e.due_type === 'weekly') {
+      if (e.last_paid_date) {
+        const diffDays = (now - new Date(e.last_paid_date)) / 86400000
+        if (diffDays < 7) return sum
+      }
+      return sum + (e.amount || 0)
+    }
     if (e.due_type !== 'monthly') return sum
     if (e.last_paid_date) {
       const paid = new Date(e.last_paid_date)
       const sameMonth = paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
-      if (sameMonth) return sum // already paid this month
+      if (sameMonth) return sum
     }
     return sum + (e.amount || 0)
   }, 0)
 
   const trulyAvailable = Math.max(0, totalBalance - unpaidThisMonth)
-  const monthlyExpenseTotal = effectiveExpenses.reduce((s, e) =>
-    e.due_type === 'monthly' ? s + (e.amount || 0) : s, 0)
+  const monthlyExpenseTotal = effectiveExpenses.reduce((s, e) => {
+    if (e.due_type === 'monthly') return s + (e.amount || 0)
+    if (e.due_type === 'weekly')  return s + (e.amount || 0) * 4
+    return s
+  }, 0)
   const safetyFloor = totalBalance - monthlyExpenseTotal
 
   // ── Payment calendar — build paycheck list via arithmetic (no string matching) ─
