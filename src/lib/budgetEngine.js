@@ -42,15 +42,17 @@ export function calculateTrulyAvailable(params) {
       dayDelta += job1Source.amount_per_period
     }
 
-    // Subtract active monthly expenses
+    // Subtract active expenses
     expenses.forEach((e) => {
       if (e.is_active === false || e.is_active === 0) return
       if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
         dayDelta -= (e.amount || 0)
       }
       if (e.due_type === 'biweekly') {
-        // Approximate: every 14 days from today if within window
         if (i % 14 === 0 && i > 0) dayDelta -= (e.amount || 0)
+      }
+      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
+        dayDelta -= (e.amount || 0)
       }
     })
 
@@ -107,6 +109,9 @@ export function buildPaymentCalendar(params) {
     expenses.forEach((e) => {
       if (e.is_active === false || e.is_active === 0) return
       if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
+        events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
+      }
+      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
         events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
       }
     })

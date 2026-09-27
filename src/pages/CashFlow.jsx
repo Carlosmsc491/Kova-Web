@@ -42,7 +42,7 @@ function buildTimeline({ startBalance, effectiveExpenses, job1 }) {
       })
     }
 
-    // Monthly expenses
+    // Monthly & weekly expenses
     effectiveExpenses.forEach((e) => {
       if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
         if (e.last_paid_date) {
@@ -50,6 +50,22 @@ function buildTimeline({ startBalance, effectiveExpenses, job1 }) {
           if (paid.getFullYear() === date.getFullYear() && paid.getMonth() === date.getMonth()) {
             return
           }
+        }
+        events.push({
+          type:         'expense',
+          name:         e.name,
+          amount:       e.amount || 0,
+          category:     e.category,
+          is_household: e.is_household === true || e.is_household === 1,
+        })
+      }
+
+      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
+        if (e.last_paid_date) {
+          const paid = new Date(e.last_paid_date)
+          paid.setHours(0, 0, 0, 0)
+          const diffDays = Math.round((date.getTime() - paid.getTime()) / 86_400_000)
+          if (diffDays >= 0 && diffDays < 7) return
         }
         events.push({
           type:         'expense',

@@ -14,6 +14,7 @@ function isPaidThisCycle(expense) {
   if (!expense.last_paid_date) return false
   const paid = new Date(expense.last_paid_date)
   const now  = new Date()
+  if (expense.due_type === 'weekly')   return (now - paid) / 86400000 < 7
   if (expense.due_type === 'biweekly') return (now - paid) / 86400000 < 14
   return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
 }
