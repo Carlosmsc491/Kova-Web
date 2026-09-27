@@ -23,57 +23,59 @@ export default function TopBar({ onMenuOpen }) {
   const { theme, toggle } = useThemeStore()
 
   return (
-    <header className="shrink-0 bg-bg-secondary border-b border-border-color px-4 flex items-center justify-between h-14 safe-top">
-      <div className="flex items-center gap-3">
-        {!isHome && (
-          <button
-            onClick={() => navigate(-1)}
-            className="p-1.5 -ml-1 text-text-muted hover:text-text-primary active:scale-90 rounded-lg transition-all"
-          >
-            <ChevronLeft size={20} />
-          </button>
-        )}
-        {isHome && (
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center">
-            <span className="text-white text-sm font-bold font-display">K</span>
-          </div>
-        )}
-        <h1 className="text-text-primary font-semibold font-display">{title}</h1>
-      </div>
+    <header className="shrink-0 bg-bg-secondary border-b border-border-color safe-top">
+      <div className="px-4 flex items-center justify-between h-14">
+        <div className="flex items-center gap-3">
+          {!isHome && (
+            <button
+              onClick={() => navigate(-1)}
+              className="p-1.5 -ml-1 text-text-muted hover:text-text-primary active:scale-90 rounded-lg transition-all"
+            >
+              <ChevronLeft size={20} />
+            </button>
+          )}
+          {isHome && (
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center">
+              <span className="text-white text-sm font-bold font-display">K</span>
+            </div>
+          )}
+          <h1 className="text-text-primary font-semibold font-display">{title}</h1>
+        </div>
 
-      <div className="flex items-center gap-1">
-        <button
-          onClick={toggle}
-          className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-        {isHome && (
-          <>
-            <button
-              onClick={() => navigate('/expenses')}
-              className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
-              title="Expenses"
-            >
-              <ReceiptText size={18} />
-            </button>
-            <button
-              onClick={() => navigate('/history')}
-              className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
-              title="History"
-            >
-              <Clock size={18} />
-            </button>
-          </>
-        )}
-        <button
-          onClick={onMenuOpen}
-          className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
-          title="More"
-        >
-          <Menu size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggle}
+            className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          {isHome && (
+            <>
+              <button
+                onClick={() => navigate('/expenses')}
+                className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
+                title="Expenses"
+              >
+                <ReceiptText size={18} />
+              </button>
+              <button
+                onClick={() => navigate('/history')}
+                className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
+                title="History"
+              >
+                <Clock size={18} />
+              </button>
+            </>
+          )}
+          <button
+            onClick={onMenuOpen}
+            className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
+            title="More"
+          >
+            <Menu size={18} />
+          </button>
+        </div>
       </div>
     </header>
   )
