@@ -23,12 +23,12 @@ export default function TopBar({ onMenuOpen }) {
   const { theme, toggle } = useThemeStore()
 
   return (
-    <header className="shrink-0 bg-bg-secondary border-b border-border-color px-4 flex items-center justify-between h-14">
+    <header className="shrink-0 bg-bg-secondary border-b border-border-color px-4 flex items-center justify-between h-14 safe-top">
       <div className="flex items-center gap-3">
         {!isHome && (
           <button
             onClick={() => navigate(-1)}
-            className="p-1.5 -ml-1 text-text-muted hover:text-text-primary rounded-lg transition-colors"
+            className="p-1.5 -ml-1 text-text-muted hover:text-text-primary active:scale-90 rounded-lg transition-all"
           >
             <ChevronLeft size={20} />
           </button>
@@ -44,7 +44,7 @@ export default function TopBar({ onMenuOpen }) {
       <div className="flex items-center gap-1">
         <button
           onClick={toggle}
-          className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+          className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
           title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
@@ -53,14 +53,14 @@ export default function TopBar({ onMenuOpen }) {
           <>
             <button
               onClick={() => navigate('/expenses')}
-              className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+              className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
               title="Expenses"
             >
               <ReceiptText size={18} />
             </button>
             <button
               onClick={() => navigate('/history')}
-              className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+              className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
               title="History"
             >
               <Clock size={18} />
@@ -69,7 +69,7 @@ export default function TopBar({ onMenuOpen }) {
         )}
         <button
           onClick={onMenuOpen}
-          className="p-2 text-text-muted hover:text-text-primary rounded-xl hover:bg-bg-tertiary transition-colors"
+          className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
           title="More"
         >
           <Menu size={18} />

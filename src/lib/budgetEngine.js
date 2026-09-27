@@ -1,7 +1,7 @@
 /**
  * Client-side budget engine — ports the Python logic from KOVA_ARCHITECTURE.md
  */
-import { toISO, parseISO, getNextPaycheckDates } from './dateUtils'
+import { toISO, parseISO, getNextPaycheckDates, isPaidThisCycle } from './dateUtils'
 
 /**
  * Calculate "Truly Available" money based on current balance, upcoming income,
@@ -42,16 +42,23 @@ export function calculateTrulyAvailable(params) {
       dayDelta += job1Source.amount_per_period
     }
 
-    // Subtract active expenses
+    // Subtract active, not-yet-paid-this-cycle expenses
     expenses.forEach((e) => {
       if (e.is_active === false || e.is_active === 0) return
-      if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
+      if (e.due_type === 'monthly' && dom === (e.due_day || 1) && !isPaidThisCycle(e, date)) {
         dayDelta -= (e.amount || 0)
       }
-      if (e.due_type === 'biweekly') {
-        if (i % 14 === 0 && i > 0) dayDelta -= (e.amount || 0)
+      // Biweekly recurs every 14 days from its own last payment, not from
+      // "today" — otherwise every reload shifts the projected date.
+      if (e.due_type === 'biweekly' && e.last_paid_date) {
+        const last = parseISO(e.last_paid_date)
+        const diffDays = Math.round((date.getTime() - last.getTime()) / 86_400_000)
+        if (diffDays > 0 && diffDays % 14 === 0) dayDelta -= (e.amount || 0)
       }
-      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
+      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1) && !isPaidThisCycle(e, date)) {
+        dayDelta -= (e.amount || 0)
+      }
+      if (e.due_type === 'one-time' && e.due_date === dateStr && !e.last_paid_date) {
         dayDelta -= (e.amount || 0)
       }
     })
@@ -105,13 +112,23 @@ export function buildPaymentCalendar(params) {
       })
     }
 
-    // Expenses
+    // Expenses — skip anything already paid for this cycle
     expenses.forEach((e) => {
       if (e.is_active === false || e.is_active === 0) return
-      if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
+      if (e.due_type === 'monthly' && dom === (e.due_day || 1) && !isPaidThisCycle(e, date)) {
         events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
       }
-      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
+      if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1) && !isPaidThisCycle(e, date)) {
+        events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
+      }
+      if (e.due_type === 'biweekly' && e.last_paid_date) {
+        const last = parseISO(e.last_paid_date)
+        const diffDays = Math.round((date.getTime() - last.getTime()) / 86_400_000)
+        if (diffDays > 0 && diffDays % 14 === 0) {
+          events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
+        }
+      }
+      if (e.due_type === 'one-time' && e.due_date === dateStr && !e.last_paid_date) {
         events.push({ date: dateStr, name: e.name, amount: e.amount, type: 'expense' })
       }
     })

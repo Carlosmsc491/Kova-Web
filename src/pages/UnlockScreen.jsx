@@ -15,7 +15,7 @@ function PinDot({ filled }) {
 
 export default function UnlockScreen() {
   const navigate = useNavigate()
-  const { setupPin, unlock, isSetupDone, signInMember, unlocked, loading, error } = useAuthStore()
+  const { setupPin, unlock, isSetupDone, getPinLength, signInMember, unlocked, loading, error } = useAuthStore()
   const [pin,     setPin]     = useState('')
   const [confirm, setConfirm] = useState('')
   const [step,    setStep]    = useState('pin') // 'pin' | 'confirm'
@@ -25,6 +25,7 @@ export default function UnlockScreen() {
   const [memberPassword, setMemberPassword] = useState('')
   const [memberError,    setMemberError]    = useState(null)
   const isSetup = !isSetupDone()
+  const knownPinLength = getPinLength() // null for a legacy account that hasn't self-healed yet
 
   useEffect(() => {
     if (unlocked) navigate('/', { replace: true })
@@ -43,20 +44,21 @@ export default function UnlockScreen() {
     }
     if (!d) return
 
-    const current = step === 'confirm' ? confirm : pin
-    if (current.length >= 6) return
-    const next = current + d
-
     if (step === 'confirm') {
+      if (confirm.length >= pin.length) return
+      const next = confirm + d
       setConfirm(next)
-      if (next.length === 6) handleConfirmSubmit(next)
-    } else {
-      setPin(next)
-      if (next.length >= 4 && !isSetup) handleUnlock(next)
-      if (next.length === 6 && isSetup) {
-        // Move to confirm step
-        setStep('confirm')
-      }
+      if (next.length === pin.length) handleConfirmSubmit(next)
+      return
+    }
+
+    if (pin.length >= 6) return
+    const next = pin + d
+    setPin(next)
+    if (isSetup) {
+      if (next.length === 6) setStep('confirm') // hit the max — nothing more to type
+    } else if (knownPinLength && next.length === knownPinLength) {
+      handleUnlock(next)
     }
   }
 
@@ -84,7 +86,9 @@ export default function UnlockScreen() {
   }
 
   const currentPin = step === 'confirm' ? confirm : pin
-  const pinLength  = isSetup ? 6 : 4
+  const dotCount   = step === 'confirm' ? pin.length : isSetup ? 6 : (knownPinLength ?? 6)
+  const canContinueSetup = isSetup && step === 'pin' && pin.length >= 4 && pin.length < 6
+  const canManualUnlock  = !isSetup && !knownPinLength && pin.length >= 4
 
   const handleMemberSignIn = async (e) => {
     e.preventDefault()
@@ -190,7 +194,7 @@ export default function UnlockScreen() {
 
       {/* PIN dots */}
       <div className={`flex gap-4 mb-8 mt-2 transition-transform ${shake ? 'animate-bounce' : ''}`}>
-        {Array.from({ length: pinLength }).map((_, i) => (
+        {Array.from({ length: dotCount }).map((_, i) => (
           <PinDot key={i} filled={i < currentPin.length} />
         ))}
       </div>
@@ -219,6 +223,16 @@ export default function UnlockScreen() {
           </button>
         ))}
       </div>
+
+      {/* Manual continue/unlock — needed when the PIN length isn't fixed at 6 */}
+      {(canContinueSetup || canManualUnlock) && !loading && (
+        <button
+          onClick={() => canContinueSetup ? setStep('confirm') : handleUnlock(pin)}
+          className="mt-6 w-full max-w-xs bg-accent-primary text-white rounded-2xl py-3 text-sm font-semibold active:scale-95 transition-all"
+        >
+          {canContinueSetup ? 'Continue' : 'Unlock'}
+        </button>
+      )}
 
       {/* Loading */}
       {loading && (

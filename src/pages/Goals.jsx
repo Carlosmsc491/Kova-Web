@@ -28,7 +28,7 @@ function toForm(g) {
 function ContribModal({ goal, onAdd, onClose }) {
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
-  const remaining = goal.target_amount - (goal.current_amount || 0)
+  const remaining = Math.max(0, goal.target_amount - (goal.current_amount || 0))
 
   const handleAdd = async () => {
     const amt = parseFloat(amount)
@@ -200,7 +200,12 @@ export default function Goals() {
   const handleUpdate = async (payload) => {
     setSaving(true); try { await update(editing.id, payload); setEditing(null); toast.success('Goal updated') } finally { setSaving(false) }
   }
-  const handleDelete   = async (id) => { await remove(id); toast.success('Goal deleted') }
+  const handleDelete   = async (id) => {
+    const g = goals.find((g) => g.id === id)
+    if (!window.confirm(`Delete "${g?.name || 'this goal'}"? This can't be undone.`)) return
+    await remove(id)
+    toast.success('Goal deleted')
+  }
   const handleComplete = async (id) => { await markComplete(id); toast.success('Goal completed! 🎉') }
   const handleContrib  = async (id, amount) => {
     const result = await addContribution(id, amount)

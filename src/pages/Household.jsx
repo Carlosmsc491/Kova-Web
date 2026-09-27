@@ -199,8 +199,10 @@ function MemberHouseholdView({ householdId }) {
   const [sharedExpenses, setSharedExpenses] = useState([])
   const [shareParts,     setShareParts]     = useState(1)
   const [loading,        setLoading]        = useState(true)
+  const [loadError,      setLoadError]      = useState(null)
 
   useEffect(() => {
+    setLoadError(null)
     Promise.all([
       householdDocService.getSharedExpenses(householdId),
       householdDocService.get(householdId),
@@ -209,7 +211,7 @@ function MemberHouseholdView({ householdId }) {
       // Use share_parts if set (from invite generation), fallback to member_uids count
       setShareParts(hDoc?.share_parts ?? hDoc?.member_uids?.length ?? 1)
       setLoading(false)
-    }).catch(() => setLoading(false))
+    }).catch(() => { setLoadError('Could not load household data. Check your connection and try again.'); setLoading(false) })
   }, [householdId])
 
   const myShare = (amt) => amt / Math.max(shareParts, 1)
@@ -218,6 +220,13 @@ function MemberHouseholdView({ householdId }) {
   if (loading) return (
     <div className="flex justify-center py-10">
       <div className="w-6 h-6 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
+    </div>
+  )
+
+  if (loadError) return (
+    <div className="bg-accent-danger/10 border border-accent-danger/30 rounded-2xl p-5 text-center">
+      <p className="text-accent-danger font-semibold text-sm mb-1">Couldn't load household</p>
+      <p className="text-text-muted text-xs">{loadError}</p>
     </div>
   )
 
@@ -291,7 +300,7 @@ export default function Household() {
     setGenerating(true)
     try {
       const contributor = contributors.find((c) => c.id === selectedContribId) ?? null
-      const token = await generateInvite(user.uid, householdExpenses, inviteEmail, contributor)
+      const token = await generateInvite(user.uid, inviteEmail, contributor)
       const base  = window.location.href.split('#')[0]
       setInviteLink(`${base}#/join?token=${token}`)
       setShowInviteForm(false)
@@ -330,6 +339,8 @@ export default function Household() {
   }
 
   const handleDelete = async (id) => {
+    const c = contributors.find((c) => c.id === id)
+    if (!window.confirm(`Remove ${c?.name || 'this contributor'}? This changes how shared expenses are split.`)) return
     await deleteContributor(id)
     toast.success('Removed')
   }

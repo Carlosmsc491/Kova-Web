@@ -5,7 +5,7 @@ import { useIncomeStore }     from '../stores/useIncomeStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency }     from '../lib/formatters'
-import { parseISO, toISO } from '../lib/dateUtils'
+import { parseISO, toISO, isPaidThisCycle } from '../lib/dateUtils'
 
 const HORIZON = 60
 
@@ -42,38 +42,38 @@ function buildTimeline({ startBalance, effectiveExpenses, job1 }) {
       })
     }
 
-    // Monthly & weekly expenses
+    // Expenses — monthly, weekly, biweekly, one-time
+    const pushExpenseEvent = (e) => events.push({
+      type:         'expense',
+      name:         e.name,
+      amount:       e.amount || 0,
+      category:     e.category,
+      is_household: e.is_household === true || e.is_household === 1,
+    })
+
     effectiveExpenses.forEach((e) => {
       if (e.due_type === 'monthly' && dom === (e.due_day || 1)) {
-        if (e.last_paid_date) {
-          const paid = new Date(e.last_paid_date)
-          if (paid.getFullYear() === date.getFullYear() && paid.getMonth() === date.getMonth()) {
-            return
-          }
-        }
-        events.push({
-          type:         'expense',
-          name:         e.name,
-          amount:       e.amount || 0,
-          category:     e.category,
-          is_household: e.is_household === true || e.is_household === 1,
-        })
+        if (!isPaidThisCycle(e, date)) pushExpenseEvent(e)
       }
 
       if (e.due_type === 'weekly' && date.getDay() === (e.due_day ?? 1)) {
-        if (e.last_paid_date) {
-          const paid = new Date(e.last_paid_date)
-          paid.setHours(0, 0, 0, 0)
-          const diffDays = Math.round((date.getTime() - paid.getTime()) / 86_400_000)
-          if (diffDays >= 0 && diffDays < 7) return
-        }
-        events.push({
-          type:         'expense',
-          name:         e.name,
-          amount:       e.amount || 0,
-          category:     e.category,
-          is_household: e.is_household === true || e.is_household === 1,
-        })
+        if (!isPaidThisCycle(e, date)) pushExpenseEvent(e)
+      }
+
+      // Biweekly has no due_day — it recurs every 14 days from its last
+      // payment, same arithmetic as the job1 paycheck. With no payment on
+      // record yet, there's no reference point, so it can't be projected.
+      if (e.due_type === 'biweekly' && e.last_paid_date) {
+        const last = parseISO(e.last_paid_date)
+        const diffDays = Math.round((date.getTime() - last.getTime()) / 86_400_000)
+        if (diffDays > 0 && diffDays % 14 === 0) pushExpenseEvent(e)
+      }
+
+      // One-time expenses fire on their exact due_date, or on "today" if
+      // that date has already passed and it's still unpaid.
+      if (e.due_type === 'one-time' && e.due_date && !e.last_paid_date) {
+        const dateStr = toISO(date)
+        if (dateStr === e.due_date || (i === 0 && e.due_date < dateStr)) pushExpenseEvent(e)
       }
     })
 

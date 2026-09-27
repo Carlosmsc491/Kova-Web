@@ -9,6 +9,7 @@ import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency }   from '../lib/formatters'
 import { toast }            from '../stores/useToastStore'
 import { logEvent }         from '../stores/useHistoryStore'
+import { isPaidThisCycle, toISO } from '../lib/dateUtils'
 
 const CATEGORIES = [
   { key: 'rent',      Icon: Home,       label: 'Rent',       color: 'text-violet-400' },
@@ -33,17 +34,8 @@ function ordinal(n) {
   return n + (['th','st','nd','rd'][(v-20)%10] || ['th','st','nd','rd'][v] || 'th')
 }
 
-function isPaidThisCycle(expense) {
-  if (!expense.last_paid_date) return false
-  const paid = new Date(expense.last_paid_date)
-  const now  = new Date()
-  if (expense.due_type === 'weekly')   return (now - paid) / 86400000 < 7
-  if (expense.due_type === 'biweekly') return (now - paid) / 86400000 < 14
-  return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
-}
-
 const BLANK = () => ({
-  name: '', amount: '', due_date: new Date().toISOString().split('T')[0], due_type: 'monthly',
+  name: '', amount: '', due_date: toISO(new Date()), due_type: 'monthly',
   account_id: '', category: 'other', is_household: false, my_share: '', notes: '',
   expense_type: 'recurring', original_balance: '', remaining_balance: '',
   contributors: [],
@@ -57,17 +49,18 @@ function toForm(exp) {
 
   // Reconstruct a representative date from due_day + due_type
   const today = new Date()
-  let due_date = today.toISOString().split('T')[0]
+  let due_date = toISO(today)
   const dtype  = exp.due_type || 'monthly'
   if (dtype === 'monthly' && exp.due_day) {
-    const d = new Date(today.getFullYear(), today.getMonth(), exp.due_day)
-    due_date = d.toISOString().split('T')[0]
+    due_date = toISO(new Date(today.getFullYear(), today.getMonth(), exp.due_day))
   } else if (dtype === 'weekly') {
     const target = exp.due_day ?? 1
     const diff   = (target - today.getDay() + 7) % 7
     const d = new Date(today)
     d.setDate(today.getDate() + diff)
-    due_date = d.toISOString().split('T')[0]
+    due_date = toISO(d)
+  } else if (dtype === 'one-time' && exp.due_date) {
+    due_date = exp.due_date
   }
 
   return {
@@ -195,6 +188,8 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
     const payload = {
       name: form.name, amount: parseFloat(form.amount),
       due_day, due_type: form.due_type,
+      // one-time expenses need the exact date — due_day alone can't carry it
+      due_date: form.due_type === 'one-time' ? form.due_date : null,
       account_id: form.account_id || null,
       category: form.category, is_household: form.is_household,
       my_share: myShareVal,
@@ -455,7 +450,7 @@ function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete
 export default function Expenses() {
   const { expenses, fetch, create, update, toggle, remove, markPaid, unmarkPaid, markInstallmentPayment } = useExpenseStore()
   const { accounts, fetch: fetchAccounts } = useAccountStore()
-  const { contributors: householdMembers, fetch: fetchHousehold } = useHouseholdStore()
+  const { contributors: householdMembers, fetch: fetchHousehold, syncToHousehold } = useHouseholdStore()
   const [filter, setFilter]               = useState('all')
   const [showForm, setShowForm]           = useState(false)
   const [editing, setEditing]             = useState(null)
@@ -479,21 +474,48 @@ export default function Expenses() {
 
   const handleCreate = async (payload) => {
     setSaving(true)
-    try { await create(payload); setShowForm(false); toast.success('Expense added'); logEvent('expense_created', payload.name, payload.amount) }
-    finally { setSaving(false) }
+    try {
+      await create(payload)
+      setShowForm(false)
+      toast.success('Expense added')
+      logEvent('expense_created', payload.name, payload.amount)
+      if (payload.is_household) syncToHousehold()
+    } finally { setSaving(false) }
   }
   const handleUpdate = async (payload) => {
     setSaving(true)
-    try { await update(editing.id, payload); setEditing(null); toast.success('Expense updated') }
-    finally { setSaving(false) }
+    try {
+      await update(editing.id, payload)
+      setEditing(null)
+      toast.success('Expense updated')
+      if (payload.is_household || editing.is_household) syncToHousehold()
+    } finally { setSaving(false) }
   }
-  const handleDelete = async (id) => { await remove(id); toast.success('Expense removed') }
-  const handleMarkPaid = async (id) => { await markPaid(id); toast.success('Marked as paid') }
-  const handleUnmarkPaid = async (id) => { await unmarkPaid(id); toast.success('Unmarked') }
+  const handleDelete = async (id) => {
+    const exp = expenses.find((e) => e.id === id)
+    if (!window.confirm(`Delete "${exp?.name || 'this expense'}"? This can't be undone.`)) return
+    await remove(id)
+    toast.success('Expense removed')
+    if (exp?.is_household) syncToHousehold()
+  }
+  const handleMarkPaid = async (id) => {
+    const exp = expenses.find((e) => e.id === id)
+    await markPaid(id)
+    toast.success('Marked as paid')
+    if (exp?.is_household) syncToHousehold()
+  }
+  const handleUnmarkPaid = async (id) => {
+    const exp = expenses.find((e) => e.id === id)
+    await unmarkPaid(id)
+    toast.success('Unmarked')
+    if (exp?.is_household) syncToHousehold()
+  }
   const handleMarkInstallment = async (id) => {
+    const exp = expenses.find((e) => e.id === id)
     const data = await markInstallmentPayment(id)
     if (data?.completed_at) toast.success('Loan paid off! 🎉')
     else toast.success('Payment logged')
+    if (exp?.is_household) syncToHousehold()
   }
 
   const completedInstallments = expenses.filter((e) => e.expense_type === 'installment' && e.completed_at)

@@ -5,9 +5,10 @@
 import {
   collection, doc, getDocs, addDoc, updateDoc,
   deleteDoc, query, orderBy, serverTimestamp, where, limit,
-  getDoc, setDoc, arrayUnion,
+  getDoc, setDoc, arrayUnion, runTransaction, writeBatch,
 } from 'firebase/firestore'
 import { db, auth } from '../firebase'
+import { todayISO } from '../lib/dateUtils'
 
 function uid() {
   return auth.currentUser?.uid
@@ -62,18 +63,23 @@ export const expenseService = {
     return { id, is_active: newActive }
   },
   markPaid: async (id) => {
-    const today = new Date().toISOString().split('T')[0]
-    return updateDocById('fixed_expenses', id, { last_paid_date: today })
+    return updateDocById('fixed_expenses', id, { last_paid_date: todayISO() })
   },
   unmarkPaid: (id) => updateDocById('fixed_expenses', id, { last_paid_date: null }),
   markInstallmentPayment: async (id, expense) => {
-    const newRemaining = Math.max(0, (expense.remaining_balance || expense.original_balance || 0) - expense.amount)
-    const completed = newRemaining <= 0
-    const payload = {
-      remaining_balance: newRemaining,
-      ...(completed ? { completed_at: new Date().toISOString().split('T')[0] } : {}),
-    }
-    await updateDocById('fixed_expenses', id, payload)
+    const ref = userDoc('fixed_expenses', id)
+    const payload = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      const data = snap.data() || {}
+      const newRemaining = Math.max(0, (data.remaining_balance ?? data.original_balance ?? 0) - (data.amount ?? expense.amount ?? 0))
+      const completed = newRemaining <= 0
+      const p = {
+        remaining_balance: newRemaining,
+        ...(completed ? { completed_at: todayISO() } : {}),
+      }
+      tx.update(ref, p)
+      return p
+    })
     return { ...expense, ...payload }
   },
 }
@@ -91,7 +97,7 @@ export const incomeService = {
   markAllPaid: async (sourceId) => {
     const days = await fetchWhere('job2_days', 'income_source_id', '==', sourceId)
     const unpaid = days.filter((d) => !d.paid)
-    await Promise.all(unpaid.map((d) => updateDocById('job2_days', d.id, { paid: true, paycheck_date: new Date().toISOString().split('T')[0] })))
+    await Promise.all(unpaid.map((d) => updateDocById('job2_days', d.id, { paid: true, paycheck_date: todayISO() })))
     return unpaid.length
   },
 }
@@ -104,14 +110,17 @@ export const creditService = {
   update:   (id, data) => updateDocById('credit_cards', id, data),
   remove:   (id) => deleteDocById('credit_cards', id),
   markPaid: async (id, card, amount) => {
-    const newBalance = Math.max(0, (card.current_balance || 0) - amount)
-    const newAvail   = (card.credit_limit || 0) - newBalance
-    await updateDocById('credit_cards', id, {
-      current_balance:  newBalance,
-      available_credit: newAvail,
-      last_paid_date:   new Date().toISOString().split('T')[0],
+    const ref = userDoc('credit_cards', id)
+    const result = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      const data = snap.data() || {}
+      const newBalance = Math.max(0, (data.current_balance ?? 0) - amount)
+      const newAvail   = (data.credit_limit ?? 0) - newBalance
+      const p = { current_balance: newBalance, available_credit: newAvail, last_paid_date: todayISO() }
+      tx.update(ref, p)
+      return p
     })
-    return { ...card, current_balance: newBalance, available_credit: newAvail }
+    return { ...card, ...result }
   },
 }
 
@@ -123,13 +132,17 @@ export const goalService = {
   update:    (id, data) => updateDocById('goals', id, data),
   remove:    (id) => deleteDocById('goals', id),
   addContrib: async (id, goal, amount) => {
-    const newCurrent = (goal.current_amount || 0) + amount
-    const completed  = newCurrent >= goal.target_amount
-    await updateDocById('goals', id, {
-      current_amount: newCurrent,
-      ...(completed ? { is_completed: true } : {}),
+    const ref = userDoc('goals', id)
+    const result = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      const data = snap.data() || {}
+      const newCurrent = (data.current_amount ?? 0) + amount
+      const completed  = newCurrent >= (data.target_amount ?? goal.target_amount ?? Infinity)
+      const p = { current_amount: newCurrent, ...(completed ? { is_completed: true } : {}) }
+      tx.update(ref, p)
+      return p
     })
-    return { ...goal, current_amount: newCurrent, is_completed: completed }
+    return { ...goal, ...result }
   },
   markComplete: (id) => updateDocById('goals', id, { is_completed: true }),
 }
@@ -144,7 +157,7 @@ export const historyService = {
       description,
       amount: amount || null,
       meta,
-      date: new Date().toISOString().split('T')[0],
+      date: todayISO(),
     }),
 }
 
@@ -170,6 +183,37 @@ export const accountService = {
   create:  (data) => createDoc('accounts', data),
   update:  (id, data) => updateDocById('accounts', id, data),
   remove:  (id) => deleteDocById('accounts', id),
+  // Atomic transfer: both balance updates + the transfer/history log entries
+  // land in a single transaction, so a mid-way failure can never move money
+  // out of one account without crediting the other.
+  transfer: async (fromId, toId, amount, note) => {
+    const fromRef      = userDoc('accounts', fromId)
+    const toRef        = userDoc('accounts', toId)
+    const transferRef  = doc(userCol('transfers'))
+    const historyRef   = doc(userCol('history'))
+    return runTransaction(db, async (tx) => {
+      const [fromSnap, toSnap] = await Promise.all([tx.get(fromRef), tx.get(toRef)])
+      if (!fromSnap.exists() || !toSnap.exists()) throw new Error('Account not found')
+      const fromData = fromSnap.data()
+      const toData   = toSnap.data()
+      const newFromBal = Math.round(((fromData.current_balance ?? 0) - amount) * 100) / 100
+      const newToBal   = Math.round(((toData.current_balance ?? 0) + amount) * 100) / 100
+      tx.update(fromRef, { current_balance: newFromBal, updated_at: serverTimestamp() })
+      tx.update(toRef,   { current_balance: newToBal,   updated_at: serverTimestamp() })
+      tx.set(transferRef, {
+        from_account_id: fromId, to_account_id: toId,
+        from_account_name: fromData.name, to_account_name: toData.name,
+        amount, note: note || null, date: todayISO(), created_at: serverTimestamp(),
+      })
+      tx.set(historyRef, {
+        type: 'transfer',
+        description: `Transferred $${amount.toFixed(2)} from ${fromData.name} to ${toData.name}${note ? ` — ${note}` : ''}`,
+        amount, meta: { from_account_id: fromId, to_account_id: toId },
+        date: todayISO(), created_at: serverTimestamp(),
+      })
+      return { newFromBal, newToBal }
+    })
+  },
 }
 
 // ── Transfers ─────────────────────────────────────────────────────────────────
@@ -251,9 +295,10 @@ export const householdDocService = {
   syncExpenses: async (hid, expenses) => {
     const colRef = collection(db, 'households', hid, 'shared_expenses')
     const existing = await getDocs(colRef)
-    await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)))
-    await Promise.all(expenses.map((e) =>
-      addDoc(colRef, {
+    const batch = writeBatch(db)
+    existing.docs.forEach((d) => batch.delete(d.ref))
+    expenses.forEach((e) => {
+      batch.set(doc(colRef), {
         name:         e.name,
         total_amount: e.amount || 0,
         due_day:      e.due_day ?? null,
@@ -262,7 +307,8 @@ export const householdDocService = {
         is_active:    e.is_active !== false && e.is_active !== 0,
         created_at:   serverTimestamp(),
       })
-    ))
+    })
+    await batch.commit()
   },
 }
 

@@ -31,7 +31,7 @@ function utilBar(pct) {
 
 // ─── Pay Modal ────────────────────────────────────────────────────────────────
 function PayModal({ card, onPay, onClose }) {
-  const [amount, setAmount] = useState(String(card.minimum_payment || ''))
+  const [amount, setAmount] = useState(card.minimum_payment != null ? String(card.minimum_payment) : '')
   const [paying, setPaying]  = useState(false)
 
   const handlePay = async () => {
@@ -156,7 +156,7 @@ function CardForm({ initial, onSave, onCancel, saving, isEditing }) {
     e.preventDefault()
     onSave({
       name: form.name, institution: form.institution,
-      credit_limit: parseFloat(form.credit_limit),
+      credit_limit: parseFloat(form.credit_limit) || 0,
       current_balance: parseFloat(form.current_balance) || 0,
       apr: form.apr ? parseFloat(form.apr) : null,
       statement_cut_date: parseInt(form.statement_cut_date),
@@ -266,7 +266,12 @@ export default function Credit() {
 
   const handleCreate = async (payload) => { setSaving(true); try { await create(payload); setShowForm(false); toast.success('Card added') } finally { setSaving(false) } }
   const handleUpdate = async (payload) => { setSaving(true); try { await update(editing.id, payload); setEditing(null); toast.success('Card updated') } finally { setSaving(false) } }
-  const handleDelete = async (id) => { await remove(id); toast.success('Card removed') }
+  const handleDelete = async (id) => {
+    const card = utilization?.cards?.find((c) => c.id === id)
+    if (!window.confirm(`Delete "${card?.name || 'this card'}"? This can't be undone.`)) return
+    await remove(id)
+    toast.success('Card removed')
+  }
   const handlePay    = async (id, amount) => {
     await markPaid(id, amount); toast.success('Payment recorded')
     const card = utilization?.cards?.find((c) => c.id === id)

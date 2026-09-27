@@ -79,6 +79,15 @@
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
 
+  /* iOS Safari zooms the whole page in when a focused input's font-size is
+     under 16px. Every form field in the app sets text-sm (14px) via a
+     Tailwind utility class, which lives in a later cascade layer than this
+     rule — !important is the only way to still win here without editing
+     every input in every form. */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
   /* Select styling */
   select {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='var(--color-select-arrow)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -114,4 +123,24 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Sheet-style entrance for bottom sheets / modals */
+  @keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-sheet-up { animation: sheet-up 0.25s cubic-bezier(0.32, 0.72, 0, 1); }
+  .animate-fade-in  { animation: fade-in 0.2s ease-out; }
+  .animate-toast-in { animation: toast-in 0.25s cubic-bezier(0.32, 0.72, 0, 1); }
 }

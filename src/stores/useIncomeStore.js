@@ -55,9 +55,11 @@ export const useIncomeStore = create((set, get) => ({
     }))
   },
 
-  // Computed helpers
-  getJob1: () => get().sources.find((s) => s.type === 'biweekly'),
-  getJob2: () => get().sources.find((s) => s.type === 'variable_daily'),
+  // Computed helpers — exclude archived/inactive sources so an old job
+  // doesn't keep driving Income while Household's income total (which does
+  // filter is_active) excludes it.
+  getJob1: () => get().sources.find((s) => s.type === 'biweekly' && s.is_active !== false && s.is_active !== 0),
+  getJob2: () => get().sources.find((s) => s.type === 'variable_daily' && s.is_active !== false && s.is_active !== 0),
   getJob2Pending: () => {
     const unpaid = get().job2Days.filter((d) => !d.paid)
     return {

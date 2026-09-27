@@ -28,7 +28,7 @@ function Job1Form({ initial, accounts, onSave, onCancel }) {
     name:                  initial?.name                ?? 'Job 1',
     company_name:          initial?.company_name        ?? '',
     amount_per_period:     initial?.amount_per_period   ?? '',
-    last_paycheck_date:    initial?.last_paycheck_date  ?? '2025-05-08',
+    last_paycheck_date:    initial?.last_paycheck_date  ?? toISO(new Date()),
     destination_account_id: initial?.destination_account_id ?? '',
   })
   const [saving, setSaving] = useState(false)
@@ -161,7 +161,7 @@ function DayLogger({ source, job2Days, onLog, onUnlog }) {
       </div>
       <div className="mt-3 flex items-center justify-between bg-bg-tertiary rounded-xl px-3 py-2.5">
         <span className="text-text-muted text-sm">{pendingInMonth.length} day{pendingInMonth.length !== 1 ? 's' : ''} unpaid</span>
-        <span className="text-accent-warning font-mono font-bold text-sm">{formatCurrency(pendingInMonth.reduce((s, d) => s + (d.day_rate || 110), 0))}</span>
+        <span className="text-accent-warning font-mono font-bold text-sm">{formatCurrency(pendingInMonth.reduce((s, d) => s + (d.day_rate ?? 110), 0))}</span>
       </div>
     </div>
   )
@@ -170,7 +170,7 @@ function DayLogger({ source, job2Days, onLog, onUnlog }) {
 // ─── Paycheck Timeline ────────────────────────────────────────────────────────
 function PaycheckTimeline({ job1Source, job2Pending }) {
   if (!job1Source) return <p className="text-center py-6 text-text-muted text-sm">Add Job 1 to see upcoming paychecks.</p>
-  const dates = getNextPaycheckDates(job1Source.last_paycheck_date ?? '2025-05-08', 6)
+  const dates = getNextPaycheckDates(job1Source.last_paycheck_date ?? toISO(new Date()), 6)
   return (
     <div className="space-y-2">
       {dates.map((iso, i) => {
