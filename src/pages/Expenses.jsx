@@ -252,15 +252,25 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
         </div>
         {!isInstallment && (
           <>
-            <div>
+            <div className="col-span-2">
               <label className="text-xs text-text-muted mb-1 block">Date</label>
               <input type="date" className={inp} value={form.due_date} onChange={(e) => set('due_date', e.target.value)} required />
             </div>
-            <div>
-              <label className="text-xs text-text-muted mb-1 block">Repeat</label>
-              <select className={inp} value={form.due_type} onChange={(e) => set('due_type', e.target.value)}>
-                {REPEAT_OPTIONS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-              </select>
+            <div className="col-span-2">
+              <label className="text-xs text-text-muted mb-2 block">Repeat</label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {REPEAT_OPTIONS.map((t) => (
+                  <button key={t.key} type="button"
+                    onClick={() => set('due_type', t.key)}
+                    className={`py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                      form.due_type === t.key
+                        ? 'bg-accent-primary text-white border-accent-primary'
+                        : 'text-text-muted border-border-color bg-bg-primary'
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </>
         )}
