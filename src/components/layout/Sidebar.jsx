@@ -14,19 +14,19 @@ export default function Sidebar({ open, onClose }) {
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/50"
+          className="fixed inset-0 z-40 bg-black/50 animate-fade-in"
           onClick={onClose}
         />
       )}
 
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-64 bg-bg-secondary border-l border-border-color flex flex-col transition-transform duration-300 ${
+        className={`fixed top-0 right-0 z-50 h-full w-64 bg-bg-secondary border-l border-border-color flex flex-col transition-transform duration-300 safe-top safe-bottom ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         <div className="flex items-center justify-between px-4 h-14 border-b border-border-color shrink-0">
           <p className="text-text-primary font-semibold font-display">More</p>
-          <button onClick={onClose} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg transition-colors">
+          <button onClick={onClose} className="p-1.5 text-text-muted hover:text-text-primary active:scale-90 rounded-lg transition-all">
             <X size={18} />
           </button>
         </div>
@@ -38,7 +38,7 @@ export default function Sidebar({ open, onClose }) {
               to={to}
               onClick={onClose}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-3 rounded-xl transition-colors ${
+                `flex items-center gap-3 px-3 py-3 rounded-xl transition-all active:scale-95 ${
                   isActive
                     ? 'bg-accent-primary/10 text-accent-primary'
                     : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'

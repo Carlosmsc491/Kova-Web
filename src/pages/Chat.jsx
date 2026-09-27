@@ -8,29 +8,20 @@ import { useCreditStore }  from '../stores/useCreditStore'
 import { useGoalsStore }   from '../stores/useGoalsStore'
 import { useAccountStore } from '../stores/useAccountStore'
 import { formatCurrency }  from '../lib/formatters'
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-function isPaidThisCycle(expense) {
-  if (!expense.last_paid_date) return false
-  const paid = new Date(expense.last_paid_date)
-  const now  = new Date()
-  if (expense.due_type === 'weekly')   return (now - paid) / 86400000 < 7
-  if (expense.due_type === 'biweekly') return (now - paid) / 86400000 < 14
-  return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
-}
+import { isPaidThisCycle, todayISO, toISO } from '../lib/dateUtils'
 
 // ─── snapshot builder ─────────────────────────────────────────────────────────
 function nextBiweeklyDate(lastPaidDateStr) {
   if (!lastPaidDateStr) return null
   const d = new Date(lastPaidDateStr + 'T12:00:00')
   d.setDate(d.getDate() + 14)
-  return d.toISOString().split('T')[0]
+  return toISO(d)
 }
 
 function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goals }) {
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const unpaidDays   = job2Days.filter((d) => !d.paid)
-  const today        = new Date().toISOString().split('T')[0]
+  const today        = todayISO()
 
   const active = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
   const personal  = active.filter((e) => e.is_household !== true && e.is_household !== 1)
@@ -54,12 +45,13 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
     job2_pending:       unpaidDays.reduce((s, d) => s + (d.day_rate ?? 110), 0),
     job2_unpaid_days:   unpaidDays.length,
     personal_expenses:  personal.map((e) => ({
-      id: e.id, name: e.name, amount: e.amount, category: e.category, due_day: e.due_day,
+      id: e.id, name: e.name, amount: e.amount, category: e.category,
+      due_type: e.due_type || 'monthly', due_day: e.due_day, due_date: e.due_date ?? null,
       paid_this_cycle: isPaidThisCycle(e),
     })),
     household_expenses: household.map((e) => ({
       id: e.id, name: e.name, total_amount: e.amount, my_share: e.my_share ?? e.amount,
-      category: e.category, due_day: e.due_day,
+      category: e.category, due_type: e.due_type || 'monthly', due_day: e.due_day, due_date: e.due_date ?? null,
       paid_this_cycle: isPaidThisCycle(e),
     })),
     monthly_personal_total: personalTotal,

@@ -51,7 +51,7 @@ function AccountForm({ initial, onSave, onCancel, saving, isEditing }) {
       </div>
       <div>
         <label className="text-xs text-text-muted mb-1 block">Current Balance ($)</label>
-        <input type="number" step="0.01" className={inp} value={f.current_balance} onChange={(e) => set('current_balance', e.target.value)} placeholder="2500.00" />
+        <input type="number" step="0.01" className={inp} value={f.current_balance} onChange={(e) => set('current_balance', e.target.value)} placeholder="2500.00" required />
       </div>
       <div className="flex gap-2 pt-1">
         <button type="submit" disabled={saving} className="flex-1 bg-accent-primary text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-accent-primary/90 disabled:opacity-50 transition-colors">
@@ -148,7 +148,9 @@ function TransferModal({ accounts, onTransfer, onClose }) {
 
   const fromAccount = accounts.find((a) => a.id === fromId)
   const toAccount   = accounts.find((a) => a.id === toId)
-  const valid       = fromId && toId && fromId !== toId && parseFloat(amount) > 0
+  const amountNum   = parseFloat(amount) || 0
+  const insufficientBalance = fromAccount && amountNum > (fromAccount.current_balance ?? 0)
+  const valid       = fromId && toId && fromId !== toId && amountNum > 0 && !insufficientBalance
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -209,6 +211,9 @@ function TransferModal({ accounts, onTransfer, onClose }) {
           <div>
             <label className="text-xs text-text-muted mb-1 block">Amount ($)</label>
             <input type="number" step="0.01" min="0.01" className={inp} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" required />
+            {insufficientBalance && (
+              <p className="text-accent-danger text-xs mt-1">Exceeds {fromAccount.name}'s balance of {formatCurrency(fromAccount.current_balance ?? 0)}.</p>
+            )}
           </div>
 
           <div>
@@ -263,6 +268,8 @@ export default function Accounts() {
   }
 
   const handleDelete = async (id) => {
+    const acc = accounts.find((a) => a.id === id)
+    if (!window.confirm(`Delete "${acc?.name || 'this account'}"? This can't be undone.`)) return
     await remove(id)
     toast.success('Account removed')
   }

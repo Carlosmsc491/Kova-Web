@@ -16,17 +16,17 @@ export default function Toast() {
   const { toasts, remove } = useToastStore()
 
   return (
-    <div className="fixed top-4 left-0 right-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4">
+    <div className="fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4 pt-4 safe-top">
       {toasts.map((t) => {
         const Icon = ICONS[t.type] ?? Info
         return (
           <div
             key={t.id}
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border text-sm font-medium shadow-lg pointer-events-auto max-w-sm w-full ${COLORS[t.type] ?? COLORS.info}`}
+            className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border text-sm font-medium shadow-lg pointer-events-auto max-w-sm w-full animate-toast-in ${COLORS[t.type] ?? COLORS.info}`}
           >
             <Icon size={16} className="shrink-0" />
             <span className="flex-1">{t.message}</span>
-            <button onClick={() => remove(t.id)} className="opacity-60 hover:opacity-100 transition-opacity">
+            <button onClick={() => remove(t.id)} className="opacity-60 hover:opacity-100 active:scale-90 transition-all">
               <X size={14} />
             </button>
           </div>

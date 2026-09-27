@@ -112,9 +112,9 @@ const TOOLS = [
   },
 ];
 
-async function executeTool(name, input, uid) {
-  const today  = new Date().toISOString().split("T")[0];
-  const userDb = (col) => admin.firestore().collection("users").doc(uid).collection(col);
+async function executeTool(name, input, uid, today) {
+  const db     = admin.firestore();
+  const userDb = (col) => db.collection("users").doc(uid).collection(col);
 
   if (name === "mark_expense_paid") {
     await userDb("fixed_expenses").doc(input.expense_id).update({ last_paid_date: today });
@@ -134,32 +134,38 @@ async function executeTool(name, input, uid) {
     return { success: true, message: `${input.account_name} balance updated to $${input.new_balance}.` };
   }
 
+  // pay_credit_card and add_goal_contribution both read-then-write a
+  // computed value (not a plain increment), and the client can perform the
+  // same action concurrently — a transaction re-reads inside the same
+  // attempt instead of trusting the (possibly stale) values the model
+  // passed in from its earlier snapshot.
   if (name === "pay_credit_card") {
-    const snap = await userDb("credit_cards").doc(input.card_id).get();
-    const card  = snap.data() || {};
-    const prevBalance = input.current_balance ?? card.current_balance ?? 0;
-    const newBalance  = Math.max(0, prevBalance - input.payment_amount);
-    const limit       = input.credit_limit ?? card.credit_limit ?? 0;
-    await userDb("credit_cards").doc(input.card_id).update({
-      current_balance:  newBalance,
-      available_credit: limit - newBalance,
-      last_paid_date:   today,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    const ref = userDb("credit_cards").doc(input.card_id);
+    const result = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const card = snap.data() || {};
+      const prevBalance = card.current_balance ?? 0;
+      const newBalance  = Math.max(0, prevBalance - input.payment_amount);
+      const limit       = card.credit_limit ?? input.credit_limit ?? 0;
+      const p = { current_balance: newBalance, available_credit: limit - newBalance, last_paid_date: today, updated_at: admin.firestore.FieldValue.serverTimestamp() };
+      tx.update(ref, p);
+      return p;
     });
-    return { success: true, message: `${input.card_name}: paid $${input.payment_amount}. New balance: $${newBalance}.` };
+    return { success: true, message: `${input.card_name}: paid $${input.payment_amount}. New balance: $${result.current_balance}.` };
   }
 
   if (name === "add_goal_contribution") {
-    const snap = await userDb("goals").doc(input.goal_id).get();
-    const goal  = snap.data() || {};
-    const newAmount = (input.current_amount ?? goal.current_amount ?? 0) + input.amount;
-    const completed = newAmount >= (input.target_amount ?? goal.target_amount ?? Infinity);
-    await userDb("goals").doc(input.goal_id).update({
-      current_amount: newAmount,
-      ...(completed ? { is_completed: true } : {}),
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    const ref = userDb("goals").doc(input.goal_id);
+    const result = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const goal = snap.data() || {};
+      const newAmount = (goal.current_amount ?? 0) + input.amount;
+      const completed = newAmount >= (goal.target_amount ?? input.target_amount ?? Infinity);
+      const p = { current_amount: newAmount, ...(completed ? { is_completed: true } : {}), updated_at: admin.firestore.FieldValue.serverTimestamp() };
+      tx.update(ref, p);
+      return p;
     });
-    return { success: true, message: `Added $${input.amount} to ${input.goal_name}. Total: $${newAmount}${completed ? " — GOAL REACHED! 🎉" : ""}.` };
+    return { success: true, message: `Added $${input.amount} to ${input.goal_name}. Total: $${result.current_amount}${result.is_completed ? " — GOAL REACHED! 🎉" : ""}.` };
   }
 
   return { success: false, message: `Unknown tool: ${name}` };
@@ -179,7 +185,11 @@ exports.chat = onCall(
       throw new HttpsError("invalid-argument", "message is required.");
     }
 
-    const uid = request.auth?.uid ?? null;
+    const uid   = request.auth?.uid ?? null;
+    // Use the client's local "today" (from its snapshot) for any date the
+    // model writes — the function runs on UTC servers, which can be a full
+    // day off from the user's actual local date.
+    const today = snapshot?.today || new Date().toISOString().split("T")[0];
 
     const contextBlock = snapshot
       ? `\n<financial_context>\n${JSON.stringify(snapshot, null, 2)}\n</financial_context>\n`
@@ -217,7 +227,7 @@ exports.chat = onCall(
 
       const toolResults = await Promise.all(
         toolUseBlocks.map(async (toolUse) => {
-          const result = await executeTool(toolUse.name, toolUse.input, uid).catch((e) => ({
+          const result = await executeTool(toolUse.name, toolUse.input, uid, today).catch((e) => ({
             success: false,
             message: `Error executing ${toolUse.name}: ${e.message}`,
           }));

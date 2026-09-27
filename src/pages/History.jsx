@@ -15,12 +15,19 @@ const TYPE_CONFIG = {
   default:            { Icon: AlertCircle,  color: 'text-text-muted',       bg: 'bg-bg-tertiary'         },
 }
 
+// Single source of truth for "when did this event happen" — used by both the
+// row display and the day-grouping so an event missing both created_at and
+// date is never grouped under one fallback while its own row shows another.
+function eventDate(event) {
+  if (event.created_at?.seconds) return new Date(event.created_at.seconds * 1000)
+  if (event.date) return new Date(event.date + 'T00:00:00')
+  return new Date()
+}
+
 function EventRow({ event }) {
   const cfg    = TYPE_CONFIG[event.type] || TYPE_CONFIG.default
   const Icon   = cfg.Icon
-  const ts     = event.created_at?.seconds
-    ? new Date(event.created_at.seconds * 1000)
-    : event.date ? new Date(event.date + 'T00:00:00') : new Date()
+  const ts     = eventDate(event)
 
   return (
     <div className="flex items-start gap-3 px-4 py-3.5 border-b border-border-color last:border-0">
@@ -48,8 +55,7 @@ function EventRow({ event }) {
 function groupByDate(events) {
   const groups = {}
   events.forEach((e) => {
-    const ts = e.created_at?.seconds ? new Date(e.created_at.seconds * 1000) : new Date(e.date + 'T00:00:00')
-    const key = ts.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    const key = eventDate(e).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     if (!groups[key]) groups[key] = []
     groups[key].push(e)
   })

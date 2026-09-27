@@ -11,7 +11,7 @@ import { useGoalsStore }      from '../stores/useGoalsStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency, formatDate, formatPercent } from '../lib/formatters'
-import { getNextPaycheckDate, daysUntil, parseISO, toISO } from '../lib/dateUtils'
+import { getNextPaycheckDate, daysUntil, parseISO, toISO, isPaidThisCycle } from '../lib/dateUtils'
 import { buildPaymentCalendar } from '../lib/budgetEngine'
 
 // ─── count-up hook ────────────────────────────────────────────────────────────
@@ -203,21 +203,9 @@ export default function Dashboard() {
 
   // ── Truly Available (inline, avoids paycheck-date matching bugs) ─────────────
   // Expenses not yet paid this billing cycle
-  const now = new Date()
   const unpaidThisMonth = effectiveExpenses.reduce((sum, e) => {
-    if (e.due_type === 'weekly') {
-      if (e.last_paid_date) {
-        const diffDays = (now - new Date(e.last_paid_date)) / 86400000
-        if (diffDays < 7) return sum
-      }
-      return sum + (e.amount || 0)
-    }
-    if (e.due_type !== 'monthly') return sum
-    if (e.last_paid_date) {
-      const paid = new Date(e.last_paid_date)
-      const sameMonth = paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
-      if (sameMonth) return sum
-    }
+    if (e.due_type !== 'monthly' && e.due_type !== 'weekly') return sum
+    if (isPaidThisCycle(e)) return sum
     return sum + (e.amount || 0)
   }, 0)
 

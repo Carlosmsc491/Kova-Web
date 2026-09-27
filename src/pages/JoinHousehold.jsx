@@ -78,7 +78,9 @@ export default function JoinHousehold() {
         contributor_name: invite.contributor_name ?? null,
       })
       await householdDocService.addMember(hid, uid)
-      await inviteService.redeem(token)
+      // Best-effort: the user has already fully joined at this point, so a
+      // failure here (network blip, etc.) shouldn't surface as a setup error.
+      try { await inviteService.redeem(token) } catch { /* ignore */ }
       await initRole(uid)
       navigate('/')
     } catch (err) {

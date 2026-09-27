@@ -12,8 +12,9 @@ import {
 import { auth } from '../firebase'
 
 // Fixed email for single-user setup
-const KOVA_EMAIL = 'kova-user@kova-app.com'
-const SETUP_KEY  = 'kova_setup_done'
+const KOVA_EMAIL  = 'kova-user@kova-app.com'
+const SETUP_KEY   = 'kova_setup_done'
+const PIN_LEN_KEY = 'kova_pin_length'
 
 export const useAuthStore = create((set, get) => ({
   user:     null,
@@ -34,6 +35,7 @@ export const useAuthStore = create((set, get) => ({
     try {
       const cred = await createUserWithEmailAndPassword(auth, KOVA_EMAIL, pin)
       localStorage.setItem(SETUP_KEY, '1')
+      localStorage.setItem(PIN_LEN_KEY, String(pin.length))
       set({ user: cred.user, unlocked: true, loading: false })
       return { ok: true }
     } catch (e) {
@@ -51,6 +53,8 @@ export const useAuthStore = create((set, get) => ({
     set({ error: null, loading: true })
     try {
       const cred = await signInWithEmailAndPassword(auth, KOVA_EMAIL, pin)
+      // Self-heal: legacy accounts set up before pin-length tracking existed
+      if (!localStorage.getItem(PIN_LEN_KEY)) localStorage.setItem(PIN_LEN_KEY, String(pin.length))
       set({ user: cred.user, unlocked: true, loading: false })
       return { ok: true }
     } catch (e) {
@@ -68,6 +72,13 @@ export const useAuthStore = create((set, get) => ({
   },
 
   isSetupDone: () => !!localStorage.getItem(SETUP_KEY),
+
+  // Returns the PIN length chosen at setup, or null if unknown (pre-fix account
+  // that hasn't successfully unlocked yet to self-heal).
+  getPinLength: () => {
+    const n = parseInt(localStorage.getItem(PIN_LEN_KEY) || '', 10)
+    return Number.isInteger(n) && n >= 4 && n <= 6 ? n : null
+  },
 
   registerMember: async (email, password) => {
     set({ error: null, loading: true })
