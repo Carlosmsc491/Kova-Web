@@ -22,8 +22,11 @@ const SYSTEM_PROMPT = `You are Kova, a personal financial assistant embedded in 
 - Update an account balance
 - Record a credit card payment (reduces balance)
 - Add a contribution to a savings goal
+- Create a new expense (recurring bill or installment/loan) — it then shows up in Expenses and Cash Flow
 
-When the user asks you to do something ("mark X as paid", "update my Chase balance to $X", "I paid $X to BofA", "add $X to my emergency fund"), USE THE APPROPRIATE TOOL immediately — don't ask for confirmation unless the action is ambiguous.
+When the user asks you to do something ("mark X as paid", "update my Chase balance to $X", "I paid $X to BofA", "add $X to my emergency fund", "add my gym $30 every month on the 5th"), USE THE APPROPRIATE TOOL immediately — don't ask for confirmation unless the action is ambiguous.
+
+For add_expense: if the user doesn't give a date, ask for it before creating. Before adding, check the existing expenses in the context — don't create a duplicate of an expense that already exists. When the user asks for several expenses at once, call add_expense once per expense.
 
 **Truly Available Money**: balance minus minimum future balance over next 60 days.
 
@@ -110,6 +113,25 @@ const TOOLS = [
       required: ["goal_id", "goal_name", "amount"],
     },
   },
+  {
+    name: "add_expense",
+    description: "Create a new expense. Use expense_type 'recurring' for bills (rent, gas, food, subscriptions) and 'installment' for loans/financing paid monthly until a total balance is paid off.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name:             { type: "string", description: "Expense name, e.g. 'Gym', 'Car loan'" },
+        amount:           { type: "number", description: "Amount per occurrence in dollars (the monthly payment for installments)" },
+        expense_type:     { type: "string", enum: ["recurring", "installment"] },
+        due_type:         { type: "string", enum: ["monthly", "weekly", "biweekly", "one-time"], description: "How often it repeats. Installments are always monthly." },
+        due_date:         { type: "string", description: "A date it's due, YYYY-MM-DD. For monthly the day-of-month is used, for weekly the weekday, for biweekly the first due date, for one-time the exact date." },
+        category:         { type: "string", enum: ["rent", "car", "utilities", "insurance", "phone", "wifi", "other"] },
+        is_household:     { type: "boolean", description: "True if it's a shared household expense split with others" },
+        original_balance: { type: "number", description: "Installments only: total amount still owed on the loan" },
+        notes:            { type: "string" },
+      },
+      required: ["name", "amount", "expense_type", "due_type", "due_date"],
+    },
+  },
 ];
 
 async function executeTool(name, input, uid, today) {
@@ -168,6 +190,50 @@ async function executeTool(name, input, uid, today) {
     return { success: true, message: `Added $${input.amount} to ${input.goal_name}. Total: $${result.current_amount}${result.is_completed ? " — GOAL REACHED! 🎉" : ""}.` };
   }
 
+  if (name === "add_expense") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.due_date || "")) {
+      return { success: false, message: "due_date must be YYYY-MM-DD." };
+    }
+    if (!(input.amount > 0)) {
+      return { success: false, message: "amount must be greater than zero." };
+    }
+    const isInstallment = input.expense_type === "installment";
+    const dueType = isInstallment ? "monthly" : input.due_type;
+    // Same derivation as the Expenses form: due_day is day-of-month for
+    // monthly, day-of-week (0=Sun) for weekly, unused (1) otherwise.
+    const [y, m, d] = input.due_date.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    const dueDay = dueType === "monthly" ? d : dueType === "weekly" ? date.getUTCDay() : 1;
+
+    const doc = {
+      name:         input.name,
+      amount:       input.amount,
+      expense_type: isInstallment ? "installment" : "recurring",
+      due_type:     dueType,
+      due_day:      dueDay,
+      due_date:     dueType === "one-time" ? input.due_date : null,
+      category:     input.category || "other",
+      is_household: input.is_household === true,
+      is_active:    true,
+      notes:        input.notes || null,
+      account_id:   null,
+      my_share:     null,
+      contributors: null,
+      created_at:   admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (isInstallment) {
+      const total = input.original_balance > 0 ? input.original_balance : null;
+      doc.original_balance  = total;
+      doc.remaining_balance = total;
+    }
+    const ref = await userDb("fixed_expenses").add(doc);
+    const when = dueType === "monthly" ? `day ${dueDay} of each month`
+      : dueType === "weekly" ? `every week (starting ${input.due_date})`
+      : dueType === "biweekly" ? `every 2 weeks (first ${input.due_date})`
+      : `once on ${input.due_date}`;
+    return { success: true, id: ref.id, message: `Added ${input.name}: $${input.amount}, ${when}${isInstallment && doc.original_balance ? `, $${doc.original_balance} total owed` : ""}.` };
+  }
+
   return { success: false, message: `Unknown tool: ${name}` };
 }
 
@@ -202,84 +268,58 @@ exports.chat = onCall(
 
     const apiKey = anthropicKey.value();
 
-    const firstRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: ANTHROPIC_HEADERS(apiKey),
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: uid ? TOOLS : [],
-        messages,
-      }),
-    });
-
-    if (!firstRes.ok) {
-      const err = await firstRes.text();
-      throw new HttpsError("internal", `Anthropic error: ${firstRes.status} — ${err}`);
-    }
-
-    const firstData = await firstRes.json();
+    const callModel = async (msgs) => {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: ANTHROPIC_HEADERS(apiKey),
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2048,
+          system: SYSTEM_PROMPT,
+          tools: uid ? TOOLS : [],
+          messages: msgs,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new HttpsError("internal", `Anthropic error: ${res.status} — ${err}`);
+      }
+      return res.json();
+    };
 
     // ── Tool use loop ────────────────────────────────────────────────────────
-    if (firstData.stop_reason === "tool_use" && uid) {
-      const toolUseBlocks = firstData.content.filter((b) => b.type === "tool_use");
+    // The model may need several rounds (e.g. adding many expenses), so keep
+    // executing tools until it answers with text, capped to avoid runaways.
+    const MAX_ROUNDS = 5;
+    const actionsExecuted = [];
+    let convo = messages;
+    let data = await callModel(convo);
 
+    for (let round = 0; round < MAX_ROUNDS && data.stop_reason === "tool_use" && uid; round++) {
+      const toolUseBlocks = data.content.filter((b) => b.type === "tool_use");
       const toolResults = await Promise.all(
         toolUseBlocks.map(async (toolUse) => {
           const result = await executeTool(toolUse.name, toolUse.input, uid, today).catch((e) => ({
             success: false,
             message: `Error executing ${toolUse.name}: ${e.message}`,
           }));
-          return {
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: JSON.stringify(result),
-          };
+          if (result.success) actionsExecuted.push(toolUse.name);
+          return { type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify(result) };
         })
       );
-
-      const followUpMessages = [
-        ...messages,
-        { role: "assistant", content: firstData.content },
+      convo = [
+        ...convo,
+        { role: "assistant", content: data.content },
         { role: "user",      content: toolResults },
       ];
-
-      const finalRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: ANTHROPIC_HEADERS(apiKey),
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1024,
-          system: SYSTEM_PROMPT,
-          tools: TOOLS,
-          messages: followUpMessages,
-        }),
-      });
-
-      if (!finalRes.ok) {
-        const err = await finalRes.text();
-        throw new HttpsError("internal", `Anthropic error (follow-up): ${finalRes.status}`);
-      }
-
-      const finalData = await finalRes.json();
-      const finalText = finalData.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
-
-      return {
-        text: finalText,
-        actionsExecuted: toolUseBlocks.map((t) => t.name),
-      };
+      data = await callModel(convo);
     }
 
-    // ── Normal text response ─────────────────────────────────────────────────
-    const text = firstData.content
+    const text = data.content
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("\n");
 
-    return { text, actionsExecuted: [] };
+    return { text, actionsExecuted };
   }
 );
