@@ -49,11 +49,9 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Background matches the header/tab bar so any strip iOS leaves outside
-     the reported viewport blends into the bars instead of showing as a gap. */
   html {
     font-family: 'Inter', sans-serif;
-    background-color: var(--color-bg-secondary);
+    background-color: var(--color-bg-primary);
     color: var(--color-text-primary);
     height: 100%;
     overflow: hidden;
@@ -63,12 +61,10 @@
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
-    background-color: var(--color-bg-secondary);
   }
 
   #root {
-    position: fixed;
-    inset: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
