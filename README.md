@@ -16,7 +16,7 @@ Mobile-first web version of KOVA, built with React 18 + Vite + Firebase + Tailwi
 - 🔐 **PIN unlock** — secure 4–6 digit PIN via Firebase Auth
 - 📊 **Dashboard** — Truly Available balance, 14-day payment calendar, goals
 - 💸 **Expenses** — CRUD for fixed/installment expenses, mark paid
-- 💰 **Income** — Job 1 biweekly + Job 2 day logger with calendar
+- 💰 **Income** — biweekly job + upcoming paycheck timeline
 - 💳 **Credit** — Card management, utilization tracking, avalanche pay order
 - 🎯 **Goals** — Savings goals with contribution tracking
 - 🤖 **AI Chat** — Claude Sonnet financial assistant

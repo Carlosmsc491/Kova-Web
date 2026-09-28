@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, DollarSign, CalendarClock, CreditCard,
-  Clock, ChevronRight, Target, ArrowRight,
+  ChevronRight, Target, ArrowRight,
 } from 'lucide-react'
 import { useExpenseStore }    from '../stores/useExpenseStore'
 import { useIncomeStore }     from '../stores/useIncomeStore'
@@ -142,7 +142,7 @@ function QuickActions() {
   const navigate = useNavigate()
   const actions = [
     { label: 'Log Expenses',  path: '/expenses', color: 'text-accent-danger' },
-    { label: 'Log Job 2 Day', path: '/income',   color: 'text-accent-warning' },
+    { label: 'Paychecks',     path: '/income',   color: 'text-accent-warning' },
     { label: 'Pay Card',      path: '/credit',   color: 'text-accent-primary' },
     { label: 'Fund Goal',     path: '/goals',    color: 'text-accent-secondary' },
   ]
@@ -166,7 +166,7 @@ function QuickActions() {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { expenses, fetch: fetchExpenses }     = useExpenseStore()
-  const { sources, job2Days, fetchSources, fetchJob2Days } = useIncomeStore()
+  const { sources, fetchSources } = useIncomeStore()
   const { utilization, fetch: fetchCredit }    = useCreditStore()
   const { goals, fetch: fetchGoals }           = useGoalsStore()
   const { accounts, fetch: fetchAccounts }     = useAccountStore()
@@ -182,13 +182,7 @@ export default function Dashboard() {
   }, [fetchExpenses, fetchSources, fetchCredit, fetchGoals, fetchAccounts, fetchHousehold])
 
   const job1       = sources.find((s) => s.type === 'biweekly')
-  const job2       = sources.find((s) => s.type === 'variable_daily')
-  const job2Pending = job2Days.filter((d) => !d.paid)
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-
-  useEffect(() => {
-    if (job2?.id) fetchJob2Days(job2.id)
-  }, [job2?.id, fetchJob2Days])
 
   const activeExpenses = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
   const memberCount    = contributors.length + 1
@@ -275,16 +269,8 @@ export default function Dashboard() {
           <div className="text-xl font-bold font-display text-accent-primary">
             {job1 ? formatCurrency(job1.amount_per_period) : '—'}
           </div>
-          <p className="text-text-muted text-xs mt-1">{nextPayDate ? formatDate(nextPayDate) : 'Add Job 1'}</p>
+          <p className="text-text-muted text-xs mt-1">{nextPayDate ? formatDate(nextPayDate) : 'Add your job'}</p>
           <p className="text-text-muted text-xs">{daysLabel}</p>
-          {job2Pending.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-border-color flex items-center justify-between">
-              <span className="text-text-muted text-xs flex items-center gap-1"><Clock size={10}/> Job 2</span>
-              <span className="text-accent-warning text-xs font-mono font-bold">
-                +{formatCurrency(job2Pending.reduce((s,d)=>s+(d.day_rate||110),0))}
-              </span>
-            </div>
-          )}
         </div>
 
         <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">

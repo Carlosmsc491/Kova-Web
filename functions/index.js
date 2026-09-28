@@ -10,7 +10,7 @@ const SYSTEM_PROMPT = `You are Kova, a personal financial assistant embedded in 
 
 **Data you can read:**
 - Bank account balances
-- Income sources (biweekly Job 1 and variable daily Job 2 at $110/day). Each biweekly source includes last_paid_date and next_payment_date.
+- Income source: one biweekly job (the user has no second job). It includes last_paid_date and next_payment_date.
 - Fixed monthly expenses (personal AND household/shared)
 - Credit cards (balance, limit, APR, utilization)
 - Savings goals and progress
