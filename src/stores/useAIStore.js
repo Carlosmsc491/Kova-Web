@@ -6,7 +6,10 @@ import { chatService } from '../services/firestoreService'
 function refreshStores(actionNames) {
   if (!actionNames?.length) return
   const has = (n) => actionNames.some((a) => a.includes(n))
-  if (has('expense')) import('./useExpenseStore').then(({ useExpenseStore }) => useExpenseStore.getState().fetch())
+  if (has('expense')) {
+    import('./useExpenseStore').then(({ useExpenseStore }) => useExpenseStore.getState().fetch())
+    import('./useHouseholdStore').then(({ useHouseholdStore }) => useHouseholdStore.getState().syncToHousehold().catch(() => {}))
+  }
   if (has('account')) import('./useAccountStore').then(({ useAccountStore }) => useAccountStore.getState().fetch())
   if (has('credit_card')) import('./useCreditStore').then(({ useCreditStore }) => useCreditStore.getState().fetch())
   if (has('goal')) import('./useGoalsStore').then(({ useGoalsStore }) => useGoalsStore.getState().fetch())
