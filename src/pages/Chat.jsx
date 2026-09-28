@@ -8,19 +8,11 @@ import { useCreditStore }  from '../stores/useCreditStore'
 import { useGoalsStore }   from '../stores/useGoalsStore'
 import { useAccountStore } from '../stores/useAccountStore'
 import { formatCurrency }  from '../lib/formatters'
-import { isPaidThisCycle, todayISO, toISO } from '../lib/dateUtils'
+import { isPaidThisCycle, todayISO, getNextPaycheckDate } from '../lib/dateUtils'
 
 // ─── snapshot builder ─────────────────────────────────────────────────────────
-function nextBiweeklyDate(lastPaidDateStr) {
-  if (!lastPaidDateStr) return null
-  const d = new Date(lastPaidDateStr + 'T12:00:00')
-  d.setDate(d.getDate() + 14)
-  return toISO(d)
-}
-
-function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goals }) {
+function buildSnapshot({ accounts, expenses, sources, utilization, goals }) {
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-  const unpaidDays   = job2Days.filter((d) => !d.paid)
   const today        = todayISO()
 
   const active = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
@@ -34,16 +26,14 @@ function buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goa
     today,
     total_balance:      totalBalance,
     accounts:           accounts.map((a) => ({ id: a.id, name: a.name, institution: a.institution, balance: a.current_balance })),
-    income_sources:     sources.map((s) => ({
+    income_sources:     sources.filter((s) => s.type === 'biweekly').map((s) => ({
       id:                s.id,
       name:              s.name,
       type:              s.type,
-      amount_per_period: s.amount_per_period || s.daily_rate,
-      last_paid_date:    s.last_paid_date ?? null,
-      next_payment_date: s.type === 'biweekly' ? nextBiweeklyDate(s.last_paid_date) : null,
+      amount_per_period: s.amount_per_period,
+      last_paid_date:    s.last_paycheck_date ?? null,
+      next_payment_date: s.last_paycheck_date ? getNextPaycheckDate(s.last_paycheck_date) : null,
     })),
-    job2_pending:       unpaidDays.reduce((s, d) => s + (d.day_rate ?? 110), 0),
-    job2_unpaid_days:   unpaidDays.length,
     personal_expenses:  personal.map((e) => ({
       id: e.id, name: e.name, amount: e.amount, category: e.category,
       due_type: e.due_type || 'monthly', due_day: e.due_day, due_date: e.due_date ?? null,
@@ -162,7 +152,7 @@ const SUGGESTIONS = [
 export default function Chat() {
   const { messages, loading, historyLoaded, send, clear, loadHistory } = useAIStore()
   const { expenses } = useExpenseStore()
-  const { sources, job2Days } = useIncomeStore()
+  const { sources } = useIncomeStore()
   const { utilization } = useCreditStore()
   const { goals } = useGoalsStore()
   const { accounts } = useAccountStore()
@@ -178,7 +168,7 @@ export default function Chat() {
     const text = input.trim()
     if (!text || loading) return
     setInput('')
-    const snapshot = buildSnapshot({ accounts, expenses, sources, job2Days, utilization, goals })
+    const snapshot = buildSnapshot({ accounts, expenses, sources, utilization, goals })
     try { await send(text, snapshot) } catch {}
   }
 

@@ -91,15 +91,6 @@ export const incomeService = {
   createSource: (data) => createDoc('income_sources', data),
   updateSource: (id, data) => updateDocById('income_sources', id, data),
   removeSource: (id) => deleteDocById('income_sources', id),
-  getJob2Days: (sourceId) => fetchWhere('job2_days', 'income_source_id', '==', sourceId),
-  logDay: (data) => createDoc('job2_days', { ...data, paid: false }),
-  unlogDay: (id) => deleteDocById('job2_days', id),
-  markAllPaid: async (sourceId) => {
-    const days = await fetchWhere('job2_days', 'income_source_id', '==', sourceId)
-    const unpaid = days.filter((d) => !d.paid)
-    await Promise.all(unpaid.map((d) => updateDocById('job2_days', d.id, { paid: true, paycheck_date: todayISO() })))
-    return unpaid.length
-  },
 }
 
 // ── Credit Cards ──────────────────────────────────────────────────────────────

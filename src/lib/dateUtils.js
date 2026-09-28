@@ -67,24 +67,3 @@ export function isPaidThisCycle(expense, refDate = new Date()) {
   if (expense.due_type === 'biweekly') return diffDays >= 0 && diffDays < 14
   return paid.getFullYear() === now.getFullYear() && paid.getMonth() === now.getMonth()
 }
-
-export function isTypicalJob2Day(dayOfWeek) {
-  return dayOfWeek === 4 || dayOfWeek === 5 || dayOfWeek === 6
-}
-
-export function buildMonthGrid(year, monthIndex) {
-  const firstDay   = new Date(year, monthIndex, 1)
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
-  const startPad   = firstDay.getDay()
-  const cells      = Array(startPad).fill(null)
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, monthIndex, d)
-    cells.push({ date: toISO(date), day: d, weekday: date.getDay() })
-  }
-  while (cells.length % 7 !== 0) cells.push(null)
-  return cells
-}
-
-export function formatMonthLabel(year, monthIndex) {
-  return new Date(year, monthIndex, 1).toLocaleString('default', { month: 'long', year: 'numeric' })
-}
