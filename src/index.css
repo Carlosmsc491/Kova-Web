@@ -63,8 +63,13 @@
     overscroll-behavior: none;
   }
 
+  /* In an iOS home-screen app with viewport-fit=cover + black-translucent,
+     height:100% resolves to the screen minus the status bar, leaving a gap
+     under the tab bar. Pinning the root to all four edges always fills the
+     real screen, on every device size. */
   #root {
-    height: 100%;
+    position: fixed;
+    inset: 0;
     display: flex;
     flex-direction: column;
   }
