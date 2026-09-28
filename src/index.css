@@ -49,9 +49,11 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Background matches the header/tab bar so any strip iOS leaves outside
+     the reported viewport blends into the bars instead of showing as a gap. */
   html {
     font-family: 'Inter', sans-serif;
-    background-color: var(--color-bg-primary);
+    background-color: var(--color-bg-secondary);
     color: var(--color-text-primary);
     height: 100%;
     overflow: hidden;
@@ -61,15 +63,17 @@
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+    background-color: var(--color-bg-secondary);
   }
 
-  /* In an iOS home-screen app with viewport-fit=cover + black-translucent,
-     height:100% resolves to the screen minus the status bar, leaving a gap
-     under the tab bar. Pinning the root to all four edges always fills the
-     real screen, on every device size. */
+  /* --app-height is set from JS (main.jsx) in iOS home-screen mode, where
+     the reported viewport can be shorter than the physical screen. */
   #root {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--app-height, 100%);
     display: flex;
     flex-direction: column;
   }
