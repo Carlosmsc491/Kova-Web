@@ -14,7 +14,7 @@ export default function BottomNav() {
   const role = useRoleStore((s) => s.role)
   const TABS = ALL_TABS.filter((t) => !(t.to === '/chat' && role === 'member'))
   return (
-    <nav className="shrink-0 bg-bg-secondary/80 backdrop-blur-lg border-t border-border-color safe-bottom">
+    <nav className="shrink-0 bg-bg-secondary border-t border-border-color safe-bottom">
       <div className="flex items-center justify-around h-16">
         {TABS.map(({ to, label, Icon }) => (
           <NavLink

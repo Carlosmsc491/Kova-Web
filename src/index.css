@@ -66,14 +66,9 @@
     background-color: var(--color-bg-secondary);
   }
 
-  /* --app-height is set from JS (main.jsx) in iOS home-screen mode, where
-     the reported viewport can be shorter than the physical screen. */
   #root {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--app-height, 100%);
+    inset: 0;
     display: flex;
     flex-direction: column;
   }
