@@ -256,6 +256,12 @@ function PlanCard({ plan, review, reviewState, onRefresh, reserve, setReserve, o
       {reviewState === 'loading' && (
         <p className="text-text-muted text-xs flex items-center gap-1.5"><Clock size={12} /> Reviewing your cash flow…</p>
       )}
+      {(reviewState === 'idle' || reviewState === 'stale') && (
+        <p className="text-text-muted text-xs">
+          {reviewState === 'stale' ? 'Your numbers changed since the last analysis. ' : ''}
+          This is the calculated plan — tap <b>Analyze</b> for Kova AI's review.
+        </p>
+      )}
       {reviewState === 'error' && (
         <p className="text-accent-warning text-xs">AI review unavailable right now — showing the calculated plan.</p>
       )}
@@ -347,7 +353,7 @@ function PlanCard({ plan, review, reviewState, onRefresh, reserve, setReserve, o
         <button onClick={onRefresh} disabled={reviewState === 'loading'}
           className="ml-auto flex items-center gap-1 text-xs font-semibold bg-accent-primary text-white rounded-lg px-2.5 py-1.5 disabled:opacity-50">
           <RefreshCw size={12} className={reviewState === 'loading' ? 'animate-spin' : ''} />
-          {reviewState === 'loading' ? 'Analyzing…' : 'Update analysis'}
+          {reviewState === 'loading' ? 'Analyzing…' : review ? 'Re-analyze' : 'Analyze'}
         </button>
       </div>
     </div>
@@ -416,8 +422,9 @@ export default function CashFlow() {
     }
   }
 
-  // Real-time review: re-run (debounced) whenever the underlying numbers
-  // change; reuse the stored review when they haven't.
+  // The AI runs only when the user taps Analyze (it costs money). On load we
+  // just read the saved review from Firestore — free — and show it only if it
+  // was made from exactly today's numbers; otherwise the calculated plan shows.
   useEffect(() => {
     if (loading || cards.length === 0) return
     const hash = reviewHash(snapshot)
@@ -431,9 +438,10 @@ export default function CashFlow() {
         setReview(cached.result)
         setReviewState('ready')
       } else {
-        runReview(hash)
+        setReview(null)
+        setReviewState(cached ? 'stale' : 'idle')
       }
-    }, 1500)
+    }, 800)
     return () => { cancelled = true; clearTimeout(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, loading, cards.length])

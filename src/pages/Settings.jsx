@@ -3,6 +3,7 @@ import { ShieldCheck, Lock, LogOut, Send, KeyRound, Bell, BellOff } from 'lucide
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { app } from '../firebase'
 import { useAuthStore } from '../stores/useAuthStore'
+import { useRoleStore } from '../stores/useRoleStore'
 import { settingsService } from '../services/firestoreService'
 import { toast } from '../stores/useToastStore'
 import SetPinModal from '../components/shared/SetPinModal'
@@ -25,6 +26,7 @@ const btn = 'text-xs font-semibold rounded-lg px-3 py-2 disabled:opacity-50'
 
 export default function Settings() {
   const { user, linkGoogle, needsGoogleLink, hasDevicePin, setDevicePin, removeDevicePin, lock, signOut } = useAuthStore()
+  const isOwner = useRoleStore((s) => s.role) === 'owner'
   const [linking, setLinking] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
   const [, rerender] = useState(0)
@@ -115,7 +117,8 @@ export default function Settings() {
         </div>
       </Section>
 
-      <Section Icon={Send} title="Telegram">
+      {/* The bot is the owner's only — members never see it. */}
+      {isOwner && (<Section Icon={Send} title="Telegram">
         {telegram === undefined ? (
           <p className="text-text-muted text-xs">Loading…</p>
         ) : telegram?.chat_id ? (
@@ -142,7 +145,7 @@ export default function Settings() {
             </div>
           </>
         )}
-      </Section>
+      </Section>)}
 
       <SetPinModal open={pinOpen} onClose={() => { setPinOpen(false); rerender((n) => n + 1) }}
         onSet={async (pin) => { await setDevicePin(pin); toast.success('PIN set for this device') }} />

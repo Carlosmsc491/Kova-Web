@@ -7,7 +7,8 @@ admin.initializeApp();
 
 const anthropicKey = defineSecret("ANTHROPIC_API_KEY");
 
-const MODEL = "claude-opus-5-5";
+// Sonnet 5.5: half the price of Opus ($2/$10 per MTok) and plenty for this.
+const MODEL = "claude-sonnet-5-5";
 // On a policy decline the API re-runs the request on a fallback model it
 // picks by refusal category, inside the same call.
 const FALLBACK = { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" };
@@ -38,6 +39,12 @@ async function isAllowed(uid) {
   const ok = q.docs.some((d) => owners.includes(d.data().owner_uid));
   allowedCache.set(uid, ok);
   return ok;
+}
+const ownerUids = () => (process.env.OWNER_UIDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+function requireOwner(request) {
+  const uid = requireUser(request);
+  if (!ownerUids().includes(uid)) throw new HttpsError("permission-denied", "Only the owner can do this.");
+  return uid;
 }
 async function requireAllowedUser(request) {
   const uid = requireUser(request);
@@ -89,6 +96,8 @@ When the user asks you to do something ("mark X as paid", "update my Chase balan
 For add_expense: if the user doesn't give a date, ask for it before creating. Check the existing expenses first — don't create a duplicate. Call add_expense once per expense.
 
 ${PLAN_RULES}
+
+**Notifications (Telegram):** Kova has a Telegram bot, @kova_carlos_bot, for the owner only. Once connected (app → Settings → Connect Telegram → tap Start), it sends a summary every morning at 9 a.m. (on paydays: the paycheck is added to the deposit account and it says what to pay with it) and a payment reminder at 6 p.m. with what's due today or overdue and unpaid, what's due tomorrow, and card minimums due in 3 days — each due item has a "Ya lo pagué" button that records the payment. The user can also chat with you there. You can't send messages on your own or change the reminder times; if they ask about reminders, explain this and, if needed, how to connect or turn the summary off (/stop in the bot).
 
 **Key rules:**
 1. Use my_share (not the full amount) for household expenses unless asked otherwise.
@@ -590,7 +599,7 @@ exports.analyzeCashFlow = onCall(
     const res = await client.beta.messages.create({
       model: MODEL,
       max_tokens: 16000,
-      output_config: { effort: "high", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
       system: REVIEW_PROMPT,
       messages: [{ role: "user", content: `<financial_context>\n${JSON.stringify(snapshot)}\n</financial_context>\n\nReview my cash flow and card payments.` }],
       ...FALLBACK,
@@ -696,13 +705,14 @@ async function loadServerSnapshot(uid) {
 exports.telegramLink = onCall(
   { secrets: [telegramToken], cors: true, maxInstances: 5 },
   async (request) => {
-    const uid = await requireAllowedUser(request);
+    // The bot is the owner's alone: household members can't link a chat.
+    const uid = requireOwner(request);
     const token = telegramToken.value();
     // (Re)register the webhook — idempotent, and keeps the secret header in sync.
     await tgBot.tg(token, "setWebhook", {
       url: `${REGION_URL}/telegramWebhook`,
       secret_token: tgBot.webhookSecret(token),
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
     });
     await tgBot.tg(token, "setMyCommands", {
       commands: [
@@ -723,7 +733,8 @@ async function linkedUid(chatId) {
   const db = admin.firestore();
   const map = await db.collection("telegram_chats").doc(String(chatId)).get();
   const uid = map.data()?.uid;
-  if (!uid) return null;
+  // Only the owner's chat is ever served, even if some other mapping existed.
+  if (!uid || !ownerUids().includes(uid)) return null;
   // Disconnecting in the app deletes settings/telegram — honor that here.
   const s = await db.collection("users").doc(uid).collection("settings").doc("telegram").get();
   return s.data()?.chat_id === chatId ? uid : null;
@@ -735,6 +746,12 @@ exports.telegramWebhook = onRequest(
     const token = telegramToken.value();
     if (req.method !== "POST" || req.get("x-telegram-bot-api-secret-token") !== tgBot.webhookSecret(token)) {
       res.status(403).send("forbidden");
+      return;
+    }
+    // Button taps ("✅ Ya lo pagué") arrive as callback queries.
+    if (req.body?.callback_query) {
+      await handlePaidButton(token, req.body.callback_query).catch((e) => console.error("paid button", e));
+      res.sendStatus(200);
       return;
     }
     const msg = req.body?.message;
@@ -761,7 +778,7 @@ exports.telegramWebhook = onRequest(
             }),
             linkRef.delete(),
           ]);
-          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 8 te mando tu resumen.\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
+          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 9 te mando tu resumen (y los días de cobro, con qué pagar), y a las 6 p.m. te recuerdo lo que tengas que pagar (con un botón para marcarlo pagado).\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
         }
         res.sendStatus(200);
         return;
@@ -806,7 +823,7 @@ exports.telegramWebhook = onRequest(
 // 8:00 a.m. digest to everyone connected (the schedule runs in New York time;
 // each user's numbers are computed in their own timezone).
 exports.telegramDailyDigest = onSchedule(
-  { schedule: "0 8 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
+  { schedule: "0 9 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
   async () => {
     const token = telegramToken.value();
     const chats = await admin.firestore().collection("telegram_chats").get();
@@ -817,10 +834,38 @@ exports.telegramDailyDigest = onSchedule(
         if (!uid) continue;
         const s = await admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram").get();
         if (s.data()?.notify === false) continue;
-        const { ctx, accounts } = await loadServerSnapshot(uid);
+        let { ctx, accounts, snapshot } = await loadServerSnapshot(uid);
+
+        // Payday: the paycheck is due today (not recorded yet) or was already
+        // recorded today (e.g. the app credited it when opened).
+        const job = ctx.job1;
+        const pending = ctx.pendingPaycheck && ctx.pendingPaycheck.payDate === snapshot.today ? ctx.pendingPaycheck : null;
+        const recordedToday = job?.last_paycheck_date === snapshot.today;
+        if (pending || recordedToday) {
+          let credited = null;
+          if (pending && job.destination_account_id) {
+            // Same ledger entry as the app: shows in Recent activity and can be undone.
+            const r = await executeTool("record_paycheck",
+              { income_source_id: job.id, to_account_id: job.destination_account_id }, uid, snapshot.today);
+            if (r.success) {
+              ({ ctx, accounts, snapshot } = await loadServerSnapshot(uid));
+              const dest = accounts.find((a) => a.id === job.destination_account_id);
+              credited = { amount: Number(job.amount_per_period) || 0, accountName: dest?.name || "tu cuenta" };
+            }
+          } else if (recordedToday) {
+            const dest = accounts.find((a) => a.id === job.destination_account_id);
+            credited = { amount: Number(job.amount_per_period) || 0, accountName: dest?.name || "tu cuenta" };
+          }
+          await tgBot.tg(token, "sendMessage", {
+            chat_id: chatId, parse_mode: "HTML",
+            text: tgBot.buildPayday({ ctx, accounts, credited, paycheckAmount: Number(job?.amount_per_period) || 0 }),
+          });
+          continue;
+        }
+
         await tgBot.tg(token, "sendMessage", { chat_id: chatId, text: tgBot.buildDigest({ ctx, accounts }), parse_mode: "HTML" });
       } catch (e) {
-        console.error("digest failed for chat", chatId, e);
+        console.error("morning message failed for chat", chatId, e);
       }
     }
   }
@@ -847,3 +892,94 @@ exports.securityAlert = onCall(
     return { sent: true };
   }
 );
+
+// ── Payment reminders ────────────────────────────────────────────────────────
+
+function registerWebhook(token) {
+  return tgBot.tg(token, "setWebhook", {
+    url: `${REGION_URL}/telegramWebhook`,
+    secret_token: tgBot.webhookSecret(token),
+    allowed_updates: ["message", "callback_query"],
+  });
+}
+
+// 6:00 p.m.: what's due today and still unpaid (+ tomorrow, + cards in 3 days).
+exports.telegramPaymentReminders = onSchedule(
+  { schedule: "0 18 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
+  async () => {
+    const token = telegramToken.value();
+    // Keeps button taps flowing even if the webhook was registered before
+    // reminders existed (it only listened for messages then).
+    await registerWebhook(token).catch((e) => console.error("setWebhook", e));
+    const chats = await admin.firestore().collection("telegram_chats").get();
+    for (const doc of chats.docs) {
+      const chatId = Number(doc.id);
+      try {
+        const uid = await linkedUid(chatId);
+        if (!uid) continue;
+        const s = await admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram").get();
+        if (s.data()?.notify === false) continue;
+        const { ctx } = await loadServerSnapshot(uid);
+        const r = tgBot.buildReminders({ ctx });
+        if (!r) continue;
+        await tgBot.tg(token, "sendMessage", {
+          chat_id: chatId, text: r.text, parse_mode: "HTML",
+          ...(r.buttons.length ? { reply_markup: { inline_keyboard: r.buttons } } : {}),
+        });
+      } catch (e) {
+        console.error("reminder failed for chat", chatId, e);
+      }
+    }
+  }
+);
+
+// "✅ Ya lo pagué" — records the payment through the same ledger as the app
+// (undoable from Recent activity). A bill uses the account/card it was last
+// paid with; otherwise it's recorded without changing any balance.
+async function handlePaidButton(token, cq) {
+  const answer = (text) => tgBot.tg(token, "answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: false }).catch(() => {});
+  const chatId = cq.message?.chat?.id;
+  const uid = chatId ? await linkedUid(chatId) : null;
+  if (!uid) return answer("");
+
+  const m = /^p\|(e|c)\|([A-Za-z0-9_-]{1,40})$/.exec(cq.data || "");
+  if (!m) return answer("");
+  const [, kind, id] = m;
+
+  // Re-check against live data: only something actually due now can be paid here.
+  const { ctx, snapshot } = await loadServerSnapshot(uid);
+  const due = (ctx.baseline[0]?.events ?? []).find((e) => e.type === "expense" && !e.isPlan &&
+    (kind === "e" ? e.expenseId === id : e.cardId === id));
+
+  let note;
+  if (!due) {
+    note = "Ya estaba registrado ✅";
+  } else if (kind === "e") {
+    const exp = (await admin.firestore().collection("users").doc(uid).collection("fixed_expenses").doc(id).get()).data() || {};
+    const src = exp.default_pay_source;
+    const withSource = src && (src.type === "account" || src.type === "card") && src.id;
+    const r = await executeTool("mark_expense_paid", {
+      expense_id: id, expense_name: due.name, amount: due.amount,
+      paid_with: withSource ? src.type : "none", ...(withSource ? { source_id: src.id } : {}),
+    }, uid, snapshot.today);
+    note = r.success ? (withSource ? "Pagado y descontado ✅" : "Registrado ✅ (sin cambiar saldos)") : "No se pudo registrar";
+  } else {
+    const r = await executeTool("pay_credit_card", {
+      card_id: id, card_name: due.name.replace(/ \(minimum\)$/, ""), payment_amount: due.amount,
+    }, uid, snapshot.today);
+    note = r.success ? "Pago registrado ✅ (sin cambiar tu cuenta)" : "No se pudo registrar";
+  }
+  await answer(note);
+
+  // Drop the tapped button so it can't be pressed twice.
+  const rows = (cq.message?.reply_markup?.inline_keyboard || []).filter((row) => row[0]?.callback_data !== cq.data);
+  await tgBot.tg(token, "editMessageReplyMarkup", {
+    chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: rows },
+  }).catch(() => {});
+  if (due) {
+    await tgBot.tg(token, "sendMessage", {
+      chat_id: chatId, parse_mode: "HTML",
+      text: `✅ <b>${tgBot.mdToHtml(due.name)}</b> — ${note.replace(" ✅", "")}. Puedes deshacerlo en la app (Recent activity).`,
+    }).catch(() => {});
+  }
+}

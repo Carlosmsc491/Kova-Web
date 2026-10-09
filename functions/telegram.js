@@ -65,4 +65,82 @@ function buildDigest({ ctx, accounts }) {
   return lines.filter(Boolean).join("\n\n");
 }
 
-module.exports = { tg, webhookSecret, mdToHtml, buildDigest, LINK_TTL_MS };
+// Evening reminder: what's due today (or overdue) and not recorded as paid,
+// what's due tomorrow, and card minimums due in 3 days. Each item due now
+// gets a "✅ Ya lo pagué" button. Returns null when there's nothing to say.
+const CARD_HEADS_UP_DAYS = 3;
+const label = (e) => e.name.replace(/ \(minimum\)$/, " (mínimo)");
+function buildReminders({ ctx }) {
+  const bills = (day) => (day?.events ?? []).filter((e) => e.type === "expense" && !e.isPlan && (e.expenseId || e.cardId));
+  const dueNow   = bills(ctx.baseline[0]);
+  const tomorrow = bills(ctx.baseline[1]);
+  const cardsSoon = bills(ctx.baseline[CARD_HEADS_UP_DAYS]).filter((e) => e.cardId);
+  if (!dueNow.length && !tomorrow.length && !cardsSoon.length) return null;
+
+  const lines = ["⏰ <b>Recordatorio de pagos</b>"];
+  if (dueNow.length) {
+    lines.push(`<b>Vence hoy${dueNow.some((e) => e.overdue) ? " o ya venció" : ""} y no está marcado como pagado:</b>\n` +
+      dueNow.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}${e.overdue ? " (vencido)" : ""}`).join("\n"));
+  }
+  if (tomorrow.length) {
+    lines.push(`<b>Mañana (${esc(fmtDay(ctx.baseline[1].dateStr))}):</b>\n` +
+      tomorrow.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}`).join("\n"));
+  }
+  if (cardsSoon.length) {
+    lines.push(`<b>Tarjetas en ${CARD_HEADS_UP_DAYS} días (${esc(fmtDay(ctx.baseline[CARD_HEADS_UP_DAYS].dateStr))}):</b>\n` +
+      cardsSoon.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}`).join("\n"));
+  }
+  if (dueNow.length) lines.push("Toca el botón cuando lo pagues y lo registro en la app.");
+
+  // callback_data is limited to 64 bytes: "p|e|<id>" or "p|c|<id>".
+  const buttons = dueNow.map((e) => [{
+    text: `✅ Ya lo pagué: ${label(e)}`.slice(0, 60),
+    callback_data: e.expenseId ? `p|e|${e.expenseId}` : `p|c|${e.cardId}`,
+  }]);
+  return { text: lines.join("\n\n"), buttons };
+}
+
+// Payday message: the paycheck landed — here's what to pay with it. Uses the
+// calculated plan (no AI): bills and card minimums due before the next
+// paycheck, then the extra card payments that are safe today.
+// credited: { amount, accountName } | null (null = could not credit automatically)
+function buildPayday({ ctx, accounts, credited, paycheckAmount }) {
+  const base = ctx.baseline;
+  // Next paycheck after today; everything due before it is paid from this one.
+  const nextPay = base.findIndex((d, i) => i > 0 && d.events.some((e) => e.type === "income"));
+  const horizon = nextPay === -1 ? base.length : nextPay;
+  const due = [];
+  for (let i = 0; i < horizon; i++) {
+    for (const e of base[i].events) {
+      if (e.type === "expense" && !e.isPlan) due.push({ ...e, dateStr: base[i].dateStr });
+    }
+  }
+  const dueTotal = due.reduce((s, e) => s + e.amount, 0);
+  const extra = ctx.plan.todayPayments;
+  const extraTotal = extra.reduce((s, p) => s + p.amount, 0);
+  const label = (e) => e.name.replace(/ \(minimum\)$/, " (mínimo)");
+
+  const lines = [];
+  lines.push(credited
+    ? `💰 <b>Cayó tu sueldo:</b> ${money(credited.amount)} → ${esc(credited.accountName)}. Ya lo sumé a tu saldo.`
+    : `💰 <b>Hoy cobras ${money(paycheckAmount)}.</b> No tengo una cuenta de depósito para sumarlo solo: elige una en la app (Income → Deposited to) o actualiza el saldo.`);
+  lines.push(accounts.map((a) => `💵 ${esc(a.name)}: <b>${money(a.current_balance)}</b>`).join("\n"));
+
+  if (due.length) {
+    const until = nextPay === -1 ? "los próximos 60 días" : `antes del próximo cobro (${esc(fmtDay(base[nextPay].dateStr))})`;
+    lines.push(`<b>1) Con ese dinero paga lo que vence ${until}:</b>\n` +
+      due.map((e) => ` • ${esc(fmtDay(e.dateStr))} — ${esc(label(e))} ${money(e.amount)}${e.overdue ? " (vencido)" : ""}`).join("\n") +
+      `\nTotal: <b>${money(dueTotal)}</b>`);
+  }
+  if (extra.length) {
+    lines.push(`<b>2) Lo que sobra, a tus tarjetas (seguro hoy):</b>\n` +
+      extra.map((p) => ` • ${money(p.amount)} → ${esc(p.cardName)} (${p.apr}% APR)`).join("\n") +
+      `\nTotal: <b>${money(extraTotal)}</b>`);
+  } else {
+    lines.push("2) Hoy no sobra un pago extra seguro para tus tarjetas.");
+  }
+  lines.push("Cuando pagues algo, dímelo aquí (por ejemplo: <i>pagué T-Mobile con la Apple Card</i>) o márcalo en la app.");
+  return lines.filter(Boolean).join("\n\n");
+}
+
+module.exports = { tg, webhookSecret, mdToHtml, buildDigest, buildReminders, buildPayday, LINK_TTL_MS };
