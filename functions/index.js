@@ -39,6 +39,12 @@ async function isAllowed(uid) {
   allowedCache.set(uid, ok);
   return ok;
 }
+const ownerUids = () => (process.env.OWNER_UIDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+function requireOwner(request) {
+  const uid = requireUser(request);
+  if (!ownerUids().includes(uid)) throw new HttpsError("permission-denied", "Only the owner can do this.");
+  return uid;
+}
 async function requireAllowedUser(request) {
   const uid = requireUser(request);
   if (!(await isAllowed(uid))) throw new HttpsError("permission-denied", "This account can't use Kova AI.");
@@ -696,7 +702,8 @@ async function loadServerSnapshot(uid) {
 exports.telegramLink = onCall(
   { secrets: [telegramToken], cors: true, maxInstances: 5 },
   async (request) => {
-    const uid = await requireAllowedUser(request);
+    // The bot is the owner's alone: household members can't link a chat.
+    const uid = requireOwner(request);
     const token = telegramToken.value();
     // (Re)register the webhook — idempotent, and keeps the secret header in sync.
     await tgBot.tg(token, "setWebhook", {
@@ -723,7 +730,8 @@ async function linkedUid(chatId) {
   const db = admin.firestore();
   const map = await db.collection("telegram_chats").doc(String(chatId)).get();
   const uid = map.data()?.uid;
-  if (!uid) return null;
+  // Only the owner's chat is ever served, even if some other mapping existed.
+  if (!uid || !ownerUids().includes(uid)) return null;
   // Disconnecting in the app deletes settings/telegram — honor that here.
   const s = await db.collection("users").doc(uid).collection("settings").doc("telegram").get();
   return s.data()?.chat_id === chatId ? uid : null;
