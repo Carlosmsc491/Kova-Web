@@ -702,7 +702,7 @@ exports.telegramLink = onCall(
     await tgBot.tg(token, "setWebhook", {
       url: `${REGION_URL}/telegramWebhook`,
       secret_token: tgBot.webhookSecret(token),
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
     });
     await tgBot.tg(token, "setMyCommands", {
       commands: [
@@ -737,6 +737,12 @@ exports.telegramWebhook = onRequest(
       res.status(403).send("forbidden");
       return;
     }
+    // Button taps ("✅ Ya lo pagué") arrive as callback queries.
+    if (req.body?.callback_query) {
+      await handlePaidButton(token, req.body.callback_query).catch((e) => console.error("paid button", e));
+      res.sendStatus(200);
+      return;
+    }
     const msg = req.body?.message;
     const chatId = msg?.chat?.id;
     const text = typeof msg?.text === "string" ? msg.text.trim() : "";
@@ -761,7 +767,7 @@ exports.telegramWebhook = onRequest(
             }),
             linkRef.delete(),
           ]);
-          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 8 te mando tu resumen.\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
+          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 8 te mando tu resumen, y a las 6 p.m. te recuerdo lo que tengas que pagar (con un botón para marcarlo pagado).\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
         }
         res.sendStatus(200);
         return;
@@ -847,3 +853,94 @@ exports.securityAlert = onCall(
     return { sent: true };
   }
 );
+
+// ── Payment reminders ────────────────────────────────────────────────────────
+
+function registerWebhook(token) {
+  return tgBot.tg(token, "setWebhook", {
+    url: `${REGION_URL}/telegramWebhook`,
+    secret_token: tgBot.webhookSecret(token),
+    allowed_updates: ["message", "callback_query"],
+  });
+}
+
+// 6:00 p.m.: what's due today and still unpaid (+ tomorrow, + cards in 3 days).
+exports.telegramPaymentReminders = onSchedule(
+  { schedule: "0 18 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
+  async () => {
+    const token = telegramToken.value();
+    // Keeps button taps flowing even if the webhook was registered before
+    // reminders existed (it only listened for messages then).
+    await registerWebhook(token).catch((e) => console.error("setWebhook", e));
+    const chats = await admin.firestore().collection("telegram_chats").get();
+    for (const doc of chats.docs) {
+      const chatId = Number(doc.id);
+      try {
+        const uid = await linkedUid(chatId);
+        if (!uid) continue;
+        const s = await admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram").get();
+        if (s.data()?.notify === false) continue;
+        const { ctx } = await loadServerSnapshot(uid);
+        const r = tgBot.buildReminders({ ctx });
+        if (!r) continue;
+        await tgBot.tg(token, "sendMessage", {
+          chat_id: chatId, text: r.text, parse_mode: "HTML",
+          ...(r.buttons.length ? { reply_markup: { inline_keyboard: r.buttons } } : {}),
+        });
+      } catch (e) {
+        console.error("reminder failed for chat", chatId, e);
+      }
+    }
+  }
+);
+
+// "✅ Ya lo pagué" — records the payment through the same ledger as the app
+// (undoable from Recent activity). A bill uses the account/card it was last
+// paid with; otherwise it's recorded without changing any balance.
+async function handlePaidButton(token, cq) {
+  const answer = (text) => tgBot.tg(token, "answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: false }).catch(() => {});
+  const chatId = cq.message?.chat?.id;
+  const uid = chatId ? await linkedUid(chatId) : null;
+  if (!uid) return answer("");
+
+  const m = /^p\|(e|c)\|([A-Za-z0-9_-]{1,40})$/.exec(cq.data || "");
+  if (!m) return answer("");
+  const [, kind, id] = m;
+
+  // Re-check against live data: only something actually due now can be paid here.
+  const { ctx, snapshot } = await loadServerSnapshot(uid);
+  const due = (ctx.baseline[0]?.events ?? []).find((e) => e.type === "expense" && !e.isPlan &&
+    (kind === "e" ? e.expenseId === id : e.cardId === id));
+
+  let note;
+  if (!due) {
+    note = "Ya estaba registrado ✅";
+  } else if (kind === "e") {
+    const exp = (await admin.firestore().collection("users").doc(uid).collection("fixed_expenses").doc(id).get()).data() || {};
+    const src = exp.default_pay_source;
+    const withSource = src && (src.type === "account" || src.type === "card") && src.id;
+    const r = await executeTool("mark_expense_paid", {
+      expense_id: id, expense_name: due.name, amount: due.amount,
+      paid_with: withSource ? src.type : "none", ...(withSource ? { source_id: src.id } : {}),
+    }, uid, snapshot.today);
+    note = r.success ? (withSource ? "Pagado y descontado ✅" : "Registrado ✅ (sin cambiar saldos)") : "No se pudo registrar";
+  } else {
+    const r = await executeTool("pay_credit_card", {
+      card_id: id, card_name: due.name.replace(/ \(minimum\)$/, ""), payment_amount: due.amount,
+    }, uid, snapshot.today);
+    note = r.success ? "Pago registrado ✅ (sin cambiar tu cuenta)" : "No se pudo registrar";
+  }
+  await answer(note);
+
+  // Drop the tapped button so it can't be pressed twice.
+  const rows = (cq.message?.reply_markup?.inline_keyboard || []).filter((row) => row[0]?.callback_data !== cq.data);
+  await tgBot.tg(token, "editMessageReplyMarkup", {
+    chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: rows },
+  }).catch(() => {});
+  if (due) {
+    await tgBot.tg(token, "sendMessage", {
+      chat_id: chatId, parse_mode: "HTML",
+      text: `✅ <b>${tgBot.mdToHtml(due.name)}</b> — ${note.replace(" ✅", "")}. Puedes deshacerlo en la app (Recent activity).`,
+    }).catch(() => {});
+  }
+}

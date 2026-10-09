@@ -65,4 +65,39 @@ function buildDigest({ ctx, accounts }) {
   return lines.filter(Boolean).join("\n\n");
 }
 
-module.exports = { tg, webhookSecret, mdToHtml, buildDigest, LINK_TTL_MS };
+// Evening reminder: what's due today (or overdue) and not recorded as paid,
+// what's due tomorrow, and card minimums due in 3 days. Each item due now
+// gets a "✅ Ya lo pagué" button. Returns null when there's nothing to say.
+const CARD_HEADS_UP_DAYS = 3;
+const label = (e) => e.name.replace(/ \(minimum\)$/, " (mínimo)");
+function buildReminders({ ctx }) {
+  const bills = (day) => (day?.events ?? []).filter((e) => e.type === "expense" && !e.isPlan && (e.expenseId || e.cardId));
+  const dueNow   = bills(ctx.baseline[0]);
+  const tomorrow = bills(ctx.baseline[1]);
+  const cardsSoon = bills(ctx.baseline[CARD_HEADS_UP_DAYS]).filter((e) => e.cardId);
+  if (!dueNow.length && !tomorrow.length && !cardsSoon.length) return null;
+
+  const lines = ["⏰ <b>Recordatorio de pagos</b>"];
+  if (dueNow.length) {
+    lines.push(`<b>Vence hoy${dueNow.some((e) => e.overdue) ? " o ya venció" : ""} y no está marcado como pagado:</b>\n` +
+      dueNow.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}${e.overdue ? " (vencido)" : ""}`).join("\n"));
+  }
+  if (tomorrow.length) {
+    lines.push(`<b>Mañana (${esc(fmtDay(ctx.baseline[1].dateStr))}):</b>\n` +
+      tomorrow.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}`).join("\n"));
+  }
+  if (cardsSoon.length) {
+    lines.push(`<b>Tarjetas en ${CARD_HEADS_UP_DAYS} días (${esc(fmtDay(ctx.baseline[CARD_HEADS_UP_DAYS].dateStr))}):</b>\n` +
+      cardsSoon.map((e) => ` • ${esc(label(e))} — ${money(e.amount)}`).join("\n"));
+  }
+  if (dueNow.length) lines.push("Toca el botón cuando lo pagues y lo registro en la app.");
+
+  // callback_data is limited to 64 bytes: "p|e|<id>" or "p|c|<id>".
+  const buttons = dueNow.map((e) => [{
+    text: `✅ Ya lo pagué: ${label(e)}`.slice(0, 60),
+    callback_data: e.expenseId ? `p|e|${e.expenseId}` : `p|c|${e.cardId}`,
+  }]);
+  return { text: lines.join("\n\n"), buttons };
+}
+
+module.exports = { tg, webhookSecret, mdToHtml, buildDigest, buildReminders, LINK_TTL_MS };
