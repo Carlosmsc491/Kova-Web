@@ -46,22 +46,4 @@ export const useExpenseStore = create((set, get) => ({
     await expenseService.remove(id)
     set((s) => ({ expenses: s.expenses.filter((e) => e.id !== id) }))
   },
-
-  markPaid: async (id) => {
-    const result = await expenseService.markPaid(id)
-    set((s) => ({ expenses: s.expenses.map((e) => e.id === id ? { ...e, ...result } : e) }))
-  },
-
-  unmarkPaid: async (id) => {
-    const result = await expenseService.unmarkPaid(id)
-    set((s) => ({ expenses: s.expenses.map((e) => e.id === id ? { ...e, ...result } : e) }))
-  },
-
-  markInstallmentPayment: async (id) => {
-    const expense = get().expenses.find((e) => e.id === id)
-    if (!expense) return
-    const result = await expenseService.markInstallmentPayment(id, expense)
-    set((s) => ({ expenses: s.expenses.map((e) => e.id === id ? { ...e, ...result } : e) }))
-    return result
-  },
 }))

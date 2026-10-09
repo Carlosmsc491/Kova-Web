@@ -13,6 +13,7 @@ const TITLES = {
   '/history':   'History',
   '/household': 'Household',
   '/cashflow':  'Cash Flow',
+  '/settings':  'Settings',
 }
 
 export default function TopBar({ onMenuOpen }) {
@@ -70,7 +71,7 @@ export default function TopBar({ onMenuOpen }) {
           )}
           <button
             onClick={onMenuOpen}
-            className="p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
+            className="md:hidden p-2 text-text-muted hover:text-text-primary active:scale-90 rounded-xl hover:bg-bg-tertiary transition-all"
             title="More"
           >
             <Menu size={18} />

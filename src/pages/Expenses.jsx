@@ -9,7 +9,11 @@ import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency }   from '../lib/formatters'
 import { toast }            from '../stores/useToastStore'
 import { logEvent }         from '../stores/useHistoryStore'
-import { isPaidThisCycle, toISO } from '../lib/dateUtils'
+import { isPaidThisCycle, firstUnpaidOccurrence, toISO } from '../lib/dateUtils'
+import { myShareOf }        from '../lib/cashFlowEngine'
+import { usePaymentStore }  from '../stores/usePaymentStore'
+import Modal                from '../components/shared/Modal'
+import PaySheet             from '../components/shared/PaySheet'
 
 const CATEGORIES = [
   { key: 'rent',      Icon: Home,       label: 'Rent',       color: 'text-violet-400' },
@@ -59,7 +63,7 @@ function toForm(exp) {
     const d = new Date(today)
     d.setDate(today.getDate() + diff)
     due_date = toISO(d)
-  } else if (dtype === 'one-time' && exp.due_date) {
+  } else if ((dtype === 'one-time' || dtype === 'biweekly') && exp.due_date) {
     due_date = exp.due_date
   }
 
@@ -182,14 +186,17 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
       ? (form.contributors.length > 0 ? parseFloat(form.contributors[0]?.amount) || null : form.my_share ? parseFloat(form.my_share) : null)
       : null
     const d = new Date(form.due_date + 'T12:00:00')
-    const due_day = form.due_type === 'monthly' ? d.getDate()
-                  : form.due_type === 'weekly'  ? d.getDay()
+    // Installments always repeat monthly on the chosen day.
+    const due_type = isInstallment ? 'monthly' : form.due_type
+    const due_day = due_type === 'monthly' ? d.getDate()
+                  : due_type === 'weekly'  ? d.getDay()
                   : 1
     const payload = {
       name: form.name, amount: parseFloat(form.amount),
-      due_day, due_type: form.due_type,
-      // one-time expenses need the exact date — due_day alone can't carry it
-      due_date: form.due_type === 'one-time' ? form.due_date : null,
+      due_day, due_type,
+      // one-time needs the exact date; biweekly needs its first date as the
+      // anchor for every-14-days — due_day alone can't carry either
+      due_date: due_type === 'one-time' || due_type === 'biweekly' ? form.due_date : null,
       account_id: form.account_id || null,
       category: form.category, is_household: form.is_household,
       my_share: myShareVal,
@@ -208,11 +215,7 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-bg-secondary border border-accent-primary/30 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-text-primary font-semibold text-sm">{isEditing ? 'Edit Expense' : 'New Expense'}</p>
-        <button type="button" onClick={onCancel} className="p-1 text-text-muted"><X size={16}/></button>
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-3">
 
       {/* Type toggle */}
       <div className="flex gap-2">
@@ -245,12 +248,12 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </div>
+        <div className="col-span-2">
+          <label className="text-xs text-text-muted mb-1 block">{isInstallment ? 'Next payment due (repeats monthly on this day)' : 'Due date'}</label>
+          <input type="date" className={inp} value={form.due_date} onChange={(e) => set('due_date', e.target.value)} required />
+        </div>
         {!isInstallment && (
           <>
-            <div className="col-span-2">
-              <label className="text-xs text-text-muted mb-1 block">Date</label>
-              <input type="date" className={inp} value={form.due_date} onChange={(e) => set('due_date', e.target.value)} required />
-            </div>
             <div className="col-span-2">
               <label className="text-xs text-text-muted mb-2 block">Repeat</label>
               <div className="grid grid-cols-4 gap-1.5">
@@ -373,12 +376,13 @@ function ExpenseForm({ initial, accounts, householdMembers, onSave, onCancel, sa
 }
 
 // ─── Expense Row ──────────────────────────────────────────────────────────────
-function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete, onMarkPaid, onUnmarkPaid, onMarkInstallment }) {
+function ExpenseRow({ expense, memberCount, onEdit, onDelete, onPay, onUndo }) {
   const cat        = CAT[expense.category] || CAT.other
   const CatIcon    = cat.Icon
   const inactive   = expense.is_active === false || expense.is_active === 0
   const isInstall  = expense.expense_type === 'installment'
-  const paidCycle  = !isInstall && isPaidThisCycle(expense)
+  const paidCycle  = isPaidThisCycle(expense)
+  const nextDue    = firstUnpaidOccurrence(expense)
 
   const paymentsLeft = isInstall && (expense.remaining_balance || 0) > 0 && expense.amount > 0
     ? Math.ceil(expense.remaining_balance / expense.amount) : 0
@@ -403,7 +407,7 @@ function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete
             <div className="h-1 rounded-full bg-bg-tertiary mt-1.5 overflow-hidden w-full max-w-[160px]">
               <div className="h-full rounded-full bg-accent-secondary" style={{ width: `${paidPct}%` }} />
             </div>
-            <p className="text-text-muted text-xs mt-1">{formatCurrency(expense.remaining_balance || 0)} left · {paymentsLeft}mo</p>
+            <p className="text-text-muted text-xs mt-1">{formatCurrency(expense.remaining_balance || 0)} left · {paymentsLeft}mo · {ordinal(expense.due_day)}</p>
           </>
         ) : (
           <>
@@ -415,27 +419,24 @@ function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete
             </p>
             {(expense.is_household === true || expense.is_household === 1) && (
               <p className="text-accent-primary text-xs mt-0.5 font-medium">
-                My share: {formatCurrency((expense.amount || 0) / memberCount)}
+                My share: {formatCurrency(myShareOf(expense, memberCount))}
               </p>
             )}
           </>
         )}
+        {!inactive && nextDue && <p className="text-text-muted text-[11px] mt-0.5">Next due {nextDue}</p>}
       </div>
       <div className="flex flex-col items-end gap-1 shrink-0">
         <p className={`font-mono font-bold text-sm ${inactive ? 'text-text-muted' : paidCycle ? 'text-green-400' : 'text-accent-danger'}`}>
           {formatCurrency(expense.amount)}{isInstall ? '/mo' : ''}
         </p>
         <div className="flex items-center gap-1">
-          {isInstall && !inactive && (
-            <button onClick={() => onMarkInstallment(expense.id)}
-              className="px-1.5 py-0.5 rounded text-[10px] text-accent-secondary bg-accent-secondary/10 border border-accent-secondary/20 font-semibold">Paid</button>
+          {!inactive && nextDue && (
+            <button onClick={() => onPay(expense, nextDue)}
+              className="px-1.5 py-0.5 rounded text-[10px] text-green-400 bg-green-500/10 border border-green-500/20 font-semibold">Pay</button>
           )}
-          {!isInstall && !inactive && !paidCycle && (
-            <button onClick={() => onMarkPaid(expense.id)}
-              className="px-1.5 py-0.5 rounded text-[10px] text-green-400 bg-green-500/10 border border-green-500/20 font-semibold">Paid</button>
-          )}
-          {!isInstall && !inactive && paidCycle && (
-            <button onClick={() => onUnmarkPaid(expense.id)}
+          {!inactive && (expense.paid_through || expense.last_paid_date) && (
+            <button onClick={() => onUndo(expense)}
               className="px-1.5 py-0.5 rounded text-[10px] text-text-muted bg-bg-tertiary border border-border-color">Undo</button>
           )}
           <button onClick={() => onEdit(expense)} className="p-1 text-text-muted hover:text-text-primary"><Pencil size={12}/></button>
@@ -448,7 +449,9 @@ function ExpenseRow({ expense, accounts, memberCount, onEdit, onToggle, onDelete
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Expenses() {
-  const { expenses, fetch, create, update, toggle, remove, markPaid, unmarkPaid, markInstallmentPayment } = useExpenseStore()
+  const { expenses, fetch, create, update, remove } = useExpenseStore()
+  const { recent, fetchRecent, undo } = usePaymentStore()
+  const [payTarget, setPayTarget]         = useState(null)
   const { accounts, fetch: fetchAccounts } = useAccountStore()
   const { contributors: householdMembers, fetch: fetchHousehold, syncToHousehold } = useHouseholdStore()
   const [filter, setFilter]               = useState('all')
@@ -470,7 +473,7 @@ export default function Expenses() {
   const householdExpenses = activeOnly.filter((e) => e.is_household === true || e.is_household === 1)
   const householdTotal = householdExpenses.reduce((s, e) => s + (e.amount || 0), 0)
   const memberCount    = householdMembers.length + 1  // +1 for Me
-  const myShareTotal   = memberCount > 1 ? householdTotal / memberCount : householdTotal
+  const myShareTotal   = householdExpenses.reduce((s, e) => s + myShareOf(e, memberCount), 0)
 
   const handleCreate = async (payload) => {
     setSaving(true)
@@ -498,24 +501,25 @@ export default function Expenses() {
     toast.success('Expense removed')
     if (exp?.is_household) syncToHousehold()
   }
-  const handleMarkPaid = async (id) => {
-    const exp = expenses.find((e) => e.id === id)
-    await markPaid(id)
-    toast.success('Marked as paid')
-    if (exp?.is_household) syncToHousehold()
-  }
-  const handleUnmarkPaid = async (id) => {
-    const exp = expenses.find((e) => e.id === id)
-    await unmarkPaid(id)
-    toast.success('Unmarked')
-    if (exp?.is_household) syncToHousehold()
-  }
-  const handleMarkInstallment = async (id) => {
-    const exp = expenses.find((e) => e.id === id)
-    const data = await markInstallmentPayment(id)
-    if (data?.completed_at) toast.success('Loan paid off! 🎉')
-    else toast.success('Payment logged')
-    if (exp?.is_household) syncToHousehold()
+
+  useEffect(() => { fetchRecent() }, [fetchRecent])
+
+  const handlePay = (exp, dueDate) => setPayTarget({
+    kind: 'expense', id: exp.id, name: exp.name, dueDate,
+    amount: exp.expense_type === 'installment'
+      ? Math.min(exp.amount || 0, exp.remaining_balance ?? Infinity)
+      : myShareOf(exp, memberCount),
+    defaultSource: exp.default_pay_source ?? (exp.account_id ? { type: 'account', id: exp.account_id } : null),
+  })
+
+  // Undo the latest recorded payment (money goes back). Older paid marks from
+  // before the payments ledger have no record, so they're simply cleared.
+  const handleUndo = async (exp) => {
+    const p = recent.find((x) => x.target_id === exp.id && !x.undone)
+    if (p) await undo(p.id)
+    else await update(exp.id, { last_paid_date: null, paid_through: null })
+    toast.success(`Undone: ${exp.name}`)
+    if (exp.is_household) syncToHousehold()
   }
 
   const completedInstallments = expenses.filter((e) => e.expense_type === 'installment' && e.completed_at)
@@ -546,9 +550,11 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* Add form */}
-      {(showForm || editing) && (
+      {/* Add / edit form — a popup, so editing the last row doesn't jump to the top */}
+      <Modal isOpen={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null) }}
+        title={editing ? 'Edit Expense' : 'New Expense'}>
         <ExpenseForm
+          key={editing?.id ?? 'new'}
           initial={editing ? toForm(editing) : undefined}
           accounts={accounts}
           householdMembers={householdMembers}
@@ -557,7 +563,9 @@ export default function Expenses() {
           saving={saving}
           isEditing={!!editing}
         />
-      )}
+      </Modal>
+      <PaySheet target={payTarget} onClose={() => setPayTarget(null)}
+        onDone={() => { if (expenses.find((e) => e.id === payTarget?.id)?.is_household) syncToHousehold() }} />
 
       {/* Filter tabs */}
       <div className="flex gap-1 bg-bg-secondary border border-border-color rounded-xl p-1 w-fit">
@@ -584,14 +592,11 @@ export default function Expenses() {
             <ExpenseRow
               key={expense.id}
               expense={expense}
-              accounts={accounts}
               memberCount={memberCount}
               onEdit={(e) => { setEditing(e); setShowForm(false) }}
-              onToggle={toggle}
               onDelete={handleDelete}
-              onMarkPaid={handleMarkPaid}
-              onUnmarkPaid={handleUnmarkPaid}
-              onMarkInstallment={handleMarkInstallment}
+              onPay={handlePay}
+              onUndo={handleUndo}
             />
           ))}
         </div>

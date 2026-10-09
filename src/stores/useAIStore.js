@@ -11,8 +11,15 @@ function refreshStores(actionNames) {
     import('./useHouseholdStore').then(({ useHouseholdStore }) => useHouseholdStore.getState().syncToHousehold().catch(() => {}))
   }
   if (has('account')) import('./useAccountStore').then(({ useAccountStore }) => useAccountStore.getState().fetch())
-  if (has('credit_card')) import('./useCreditStore').then(({ useCreditStore }) => useCreditStore.getState().fetch())
+  if (has('card')) import('./useCreditStore').then(({ useCreditStore }) => useCreditStore.getState().fetch())
   if (has('goal')) import('./useGoalsStore').then(({ useGoalsStore }) => useGoalsStore.getState().fetch())
+  if (has('paycheck')) import('./useIncomeStore').then(({ useIncomeStore }) => useIncomeStore.getState().fetchSources())
+  // Payments, card payments and paychecks move money between accounts and
+  // land in the payments ledger (Recent activity).
+  if (has('paid') || has('card') || has('paycheck')) {
+    import('./useAccountStore').then(({ useAccountStore }) => useAccountStore.getState().fetch())
+    import('./usePaymentStore').then(({ usePaymentStore }) => usePaymentStore.getState().fetchRecent())
+  }
 }
 
 export const useAIStore = create((set, get) => ({

@@ -49,8 +49,8 @@ export const useAccountStore = create((set) => ({
 
     set((s) => ({
       accounts: s.accounts.map((a) =>
-        a.id === from_account_id ? { ...a, current_balance: newFromBal } :
-        a.id === to_account_id   ? { ...a, current_balance: newToBal }   : a
+        a.id === from_account_id ? { ...a, current_balance: newFromBal, updated_at: new Date() } :
+        a.id === to_account_id   ? { ...a, current_balance: newToBal, updated_at: new Date() }   : a
       ),
     }))
   },

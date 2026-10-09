@@ -14,7 +14,7 @@ function Field({ label, children }) {
 }
 
 // ─── Job form ─────────────────────────────────────────────────────────────────
-function JobForm({ initial, onSave, onCancel }) {
+function JobForm({ initial, accounts, onSave, onCancel }) {
   const [f, setF] = useState({
     name:                  initial?.name                ?? 'Job 1',
     company_name:          initial?.company_name        ?? '',
@@ -46,6 +46,15 @@ function JobForm({ initial, onSave, onCancel }) {
         <Field label="Last paycheck">
           <input type="date" className={inp} value={f.last_paycheck_date} onChange={set('last_paycheck_date')} />
         </Field>
+        <div className="col-span-2">
+          <Field label="Deposited to">
+            <select className={inp} value={f.destination_account_id} onChange={set('destination_account_id')}>
+              <option value="">Don't add automatically</option>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+          <p className="text-text-muted text-[11px] mt-1">On payday the check is added to this account automatically (you can undo it).</p>
+        </div>
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={saving} className="flex-1 bg-accent-primary text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors">
@@ -92,7 +101,7 @@ function PaycheckTimeline({ job }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Income() {
   const { fetchSources, createSource, updateSource, getJob1 } = useIncomeStore()
-  const { fetch: fetchAccounts } = useAccountStore()
+  const { accounts, fetch: fetchAccounts } = useAccountStore()
   const [editing, setEditing] = useState(false)
 
   const job = getJob1()
@@ -128,7 +137,7 @@ export default function Income() {
             </div>
           </div>
         )}
-        {(!job || editing) && <JobForm initial={editing && job ? job : null} onSave={handleSave} onCancel={job ? () => setEditing(false) : null} />}
+        {(!job || editing) && <JobForm initial={editing && job ? job : null} accounts={accounts} onSave={handleSave} onCancel={job ? () => setEditing(false) : null} />}
       </div>
 
       <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">

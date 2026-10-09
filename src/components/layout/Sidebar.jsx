@@ -1,13 +1,9 @@
 import { NavLink } from 'react-router-dom'
-import { X, ReceiptText, CreditCard, Target, Clock, TrendingUp } from 'lucide-react'
+import { X } from 'lucide-react'
+import { SECONDARY } from './navItems'
 
-const ITEMS = [
-  { to: '/cashflow', label: 'Cash Flow', Icon: TrendingUp },
-  { to: '/expenses', label: 'Expenses',  Icon: ReceiptText },
-  { to: '/credit',   label: 'Credit',    Icon: CreditCard },
-  { to: '/goals',    label: 'Goals',     Icon: Target },
-  { to: '/history',  label: 'History',   Icon: Clock },
-]
+// The less-used setup screens; the daily ones are in the bottom tabs.
+const ITEMS = SECONDARY
 
 export default function Sidebar({ open, onClose }) {
   return (

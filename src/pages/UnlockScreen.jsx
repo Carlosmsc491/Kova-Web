@@ -1,258 +1,75 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import PinPad from '../components/shared/PinPad'
 import { useAuthStore } from '../stores/useAuthStore'
-import { Delete } from 'lucide-react'
 
-const DIGITS = ['1','2','3','4','5','6','7','8','9','','0','⌫']
 
-function PinDot({ filled }) {
+function Logo() {
   return (
-    <div className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${
-      filled ? 'bg-accent-primary border-accent-primary scale-110' : 'border-text-muted'
-    }`} />
+    <div className="mb-8 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center mx-auto mb-4">
+        <span className="text-white text-2xl font-bold font-display">K</span>
+      </div>
+      <h1 className="text-2xl font-bold font-display text-text-primary">KOVA</h1>
+      <p className="text-text-muted text-sm mt-1">Personal Finance OS</p>
+    </div>
   )
 }
 
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+    </svg>
+  )
+}
+
+
 export default function UnlockScreen() {
   const navigate = useNavigate()
-  const { setupPin, unlock, isSetupDone, getPinLength, signInMember, unlocked, loading, error } = useAuthStore()
-  const [pin,     setPin]     = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [step,    setStep]    = useState('pin') // 'pin' | 'confirm'
-  const [shake,   setShake]   = useState(false)
-  const [mode,    setMode]    = useState('pin') // 'pin' | 'member'
-  const [memberEmail,    setMemberEmail]    = useState('')
-  const [memberPassword, setMemberPassword] = useState('')
-  const [memberError,    setMemberError]    = useState(null)
-  const isSetup = !isSetupDone()
-  const knownPinLength = getPinLength() // null for a legacy account that hasn't self-healed yet
+  const { user, unlocked, locked, loading, error, signInWithGoogle, unlockWithDevicePin, signOut, pinWaitUntil } = useAuthStore()
+  const [now, setNow] = useState(Date.now())
 
+  useEffect(() => { if (unlocked) navigate('/', { replace: true }) }, [unlocked, navigate])
+
+  // Ticks the countdown while a wrong-PIN delay is running.
   useEffect(() => {
-    if (unlocked) navigate('/', { replace: true })
-  }, [unlocked, navigate])
+    if (!pinWaitUntil || pinWaitUntil <= Date.now()) return
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [pinWaitUntil])
+  const waitSecs = pinWaitUntil ? Math.max(0, Math.ceil((pinWaitUntil - now) / 1000)) : 0
 
-  const triggerShake = () => {
-    setShake(true)
-    setTimeout(() => setShake(false), 500)
-  }
-
-  const handleDigit = (d) => {
-    if (d === '⌫') {
-      if (step === 'confirm') setConfirm((p) => p.slice(0, -1))
-      else setPin((p) => p.slice(0, -1))
-      return
-    }
-    if (!d) return
-
-    if (step === 'confirm') {
-      if (confirm.length >= pin.length) return
-      const next = confirm + d
-      setConfirm(next)
-      if (next.length === pin.length) handleConfirmSubmit(next)
-      return
-    }
-
-    if (pin.length >= 6) return
-    const next = pin + d
-    setPin(next)
-    if (isSetup) {
-      if (next.length === 6) setStep('confirm') // hit the max — nothing more to type
-    } else if (knownPinLength && next.length === knownPinLength) {
-      handleUnlock(next)
-    }
-  }
-
-  const handleConfirmSubmit = async (confirmPin) => {
-    if (confirmPin !== pin) {
-      triggerShake()
-      setConfirm('')
-      return
-    }
-    const result = await setupPin(pin)
-    if (!result.ok) {
-      triggerShake()
-      setPin('')
-      setConfirm('')
-      setStep('pin')
-    }
-  }
-
-  const handleUnlock = async (enteredPin) => {
-    const result = await unlock(enteredPin)
-    if (!result.ok) {
-      triggerShake()
-      setPin('')
-    }
-  }
-
-  const currentPin = step === 'confirm' ? confirm : pin
-  const dotCount   = step === 'confirm' ? pin.length : isSetup ? 6 : (knownPinLength ?? 6)
-  const canContinueSetup = isSetup && step === 'pin' && pin.length >= 4 && pin.length < 6
-  const canManualUnlock  = !isSetup && !knownPinLength && pin.length >= 4
-
-  const handleMemberSignIn = async (e) => {
-    e.preventDefault()
-    setMemberError(null)
-    const result = await signInMember(memberEmail, memberPassword)
-    if (!result.ok) {
-      setMemberError(result.error || 'Sign in failed.')
-    }
-  }
-
-  const inp = 'w-full bg-bg-secondary border border-border-color rounded-xl px-3 py-3 text-text-primary text-sm focus:outline-none focus:border-accent-primary transition-colors placeholder:text-text-muted'
-
-  if (mode === 'member') {
+  // Signed in, but this device has a PIN lock.
+  if (user && locked) {
     return (
       <div className="h-full bg-bg-primary flex flex-col items-center justify-center px-8">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-2xl font-bold font-display">K</span>
-          </div>
-          <h1 className="text-2xl font-bold font-display text-text-primary">KOVA</h1>
-          <p className="text-text-muted text-sm mt-1">Personal Finance OS</p>
-        </div>
-
-        <div className="w-full max-w-xs">
-          <p className="text-text-secondary text-base mb-5 font-medium text-center">Household member sign in</p>
-
-          <form onSubmit={handleMemberSignIn} className="space-y-3">
-            <div>
-              <label className="text-xs text-text-muted mb-1.5 block">Email</label>
-              <input
-                type="email"
-                className={inp}
-                placeholder="you@example.com"
-                value={memberEmail}
-                onChange={(e) => setMemberEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-muted mb-1.5 block">Password</label>
-              <input
-                type="password"
-                className={inp}
-                placeholder="Your password"
-                value={memberPassword}
-                onChange={(e) => setMemberPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-            </div>
-
-            {(memberError || error) && (
-              <p className="text-accent-danger text-xs text-center">{memberError || error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-accent-primary text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 transition-colors mt-1"
-            >
-              {loading
-                ? <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>
-                    Signing in…
-                  </span>
-                : 'Sign In'}
-            </button>
-          </form>
-
-          <button
-            onClick={() => setMode('pin')}
-            className="mt-5 text-text-muted text-xs text-center w-full hover:text-text-secondary transition-colors"
-          >
-            ← Back to PIN
-          </button>
-        </div>
+        <Logo />
+        <PinPad title="Enter your PIN" onComplete={unlockWithDevicePin} disabled={loading || waitSecs > 0} />
+        {waitSecs > 0
+          ? <p className="text-accent-warning text-sm mt-4 text-center">Too many tries — wait {waitSecs}s</p>
+          : error && <p className="text-accent-danger text-sm mt-4 text-center">{error}</p>}
+        <button onClick={signOut} className="mt-8 text-text-muted text-xs hover:text-text-secondary">
+          Forgot PIN? Recover it by signing in with Google
+        </button>
       </div>
     )
   }
 
   return (
     <div className="h-full bg-bg-primary flex flex-col items-center justify-center px-8">
-      {/* Logo */}
-      <div className="mb-10 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-primary to-purple-800 flex items-center justify-center mx-auto mb-4">
-          <span className="text-white text-2xl font-bold font-display">K</span>
-        </div>
-        <h1 className="text-2xl font-bold font-display text-text-primary">KOVA</h1>
-        <p className="text-text-muted text-sm mt-1">Personal Finance OS</p>
-      </div>
-
-      {/* Instruction */}
-      <p className="text-text-secondary text-base mb-2 font-medium">
-        {isSetup
-          ? step === 'pin' ? 'Create a PIN (4–6 digits)' : 'Confirm your PIN'
-          : 'Enter your PIN'}
-      </p>
-      {isSetup && step === 'pin' && (
-        <p className="text-text-muted text-xs mb-6">Use at least 4 digits</p>
-      )}
-
-      {/* PIN dots */}
-      <div className={`flex gap-4 mb-8 mt-2 transition-transform ${shake ? 'animate-bounce' : ''}`}>
-        {Array.from({ length: dotCount }).map((_, i) => (
-          <PinDot key={i} filled={i < currentPin.length} />
-        ))}
-      </div>
-
-      {/* Error */}
-      {error && (
-        <p className="text-accent-danger text-sm mb-4 text-center">{error}</p>
-      )}
-
-      {/* Keypad */}
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
-        {DIGITS.map((d, i) => (
-          <button
-            key={i}
-            onClick={() => handleDigit(d)}
-            disabled={loading || (!d && d !== '0')}
-            className={`h-16 rounded-2xl text-xl font-semibold transition-all active:scale-95 ${
-              d === '⌫'
-                ? 'text-text-muted bg-bg-secondary hover:bg-bg-tertiary'
-                : !d
-                ? 'invisible'
-                : 'text-text-primary bg-bg-secondary hover:bg-bg-tertiary border border-border-color'
-            }`}
-          >
-            {d === '⌫' ? <Delete size={20} className="mx-auto" /> : d}
-          </button>
-        ))}
-      </div>
-
-      {/* Manual continue/unlock — needed when the PIN length isn't fixed at 6 */}
-      {(canContinueSetup || canManualUnlock) && !loading && (
-        <button
-          onClick={() => canContinueSetup ? setStep('confirm') : handleUnlock(pin)}
-          className="mt-6 w-full max-w-xs bg-accent-primary text-white rounded-2xl py-3 text-sm font-semibold active:scale-95 transition-all"
-        >
-          {canContinueSetup ? 'Continue' : 'Unlock'}
+      <Logo />
+      <div className="w-full max-w-xs space-y-3">
+        <button onClick={signInWithGoogle} disabled={loading}
+          className="w-full flex items-center justify-center gap-2.5 bg-bg-secondary border border-border-color rounded-xl py-3 text-sm font-semibold text-text-primary hover:bg-bg-tertiary disabled:opacity-50">
+          <GoogleIcon /> {loading ? 'Signing in…' : 'Continue with Google'}
         </button>
-      )}
-
-      {/* Loading */}
-      {loading && (
-        <div className="mt-6 w-5 h-5 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
-      )}
-
-      {/* Reset hint */}
-      {!isSetup && (
-        <p className="text-text-muted text-xs mt-8 text-center">
-          Forgot your PIN? Clear app data in Settings.
-        </p>
-      )}
-
-      {/* Member sign in link */}
-      <button
-        onClick={() => setMode('member')}
-        className="mt-4 text-text-muted text-xs text-center hover:text-text-secondary transition-colors"
-      >
-        Household member? Sign in →
-      </button>
+        {error && <p className="text-accent-danger text-xs text-center">{error}</p>}
+        <p className="text-text-muted text-[11px] text-center">Only the owner's Google account and invited household members can get in.</p>
+      </div>
     </div>
   )
 }

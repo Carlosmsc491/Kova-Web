@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { CreditCard, Plus, Pencil, Trash2, CheckCircle, AlertTriangle, X } from 'lucide-react'
 import { useCreditStore }  from '../stores/useCreditStore'
-import { useExpenseStore } from '../stores/useExpenseStore'
+import { useAccountStore } from '../stores/useAccountStore'
+import { useIncomeStore }  from '../stores/useIncomeStore'
 import { formatCurrency, formatPercent, ordinal } from '../lib/formatters'
 import { toast }   from '../stores/useToastStore'
-import { logEvent } from '../stores/useHistoryStore'
+import Modal    from '../components/shared/Modal'
+import PaySheet from '../components/shared/PaySheet'
 
 function daysUntilDay(day) {
   if (!day) return null
@@ -27,50 +29,6 @@ function utilColor(pct) {
 }
 function utilBar(pct) {
   return pct >= 50 ? 'bg-accent-danger' : pct >= 30 ? 'bg-accent-warning' : 'bg-accent-secondary'
-}
-
-// ─── Pay Modal ────────────────────────────────────────────────────────────────
-function PayModal({ card, onPay, onClose }) {
-  const [amount, setAmount] = useState(card.minimum_payment != null ? String(card.minimum_payment) : '')
-  const [paying, setPaying]  = useState(false)
-
-  const handlePay = async () => {
-    const amt = parseFloat(amount)
-    if (!amt || amt <= 0) return
-    setPaying(true)
-    try { await onPay(card.id, amt); onClose() }
-    finally { setPaying(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose}/>
-      <div className="relative z-10 w-full sm:max-w-sm bg-bg-secondary border border-border-color rounded-t-3xl sm:rounded-2xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-text-primary font-semibold">Pay {card.name}</p>
-          <button onClick={onClose} className="p-1.5 text-text-muted"><X size={16}/></button>
-        </div>
-        <p className="text-text-muted text-xs mb-3">Balance: {formatCurrency(card.current_balance)}</p>
-        <div className="space-y-2 mb-4">
-          {[{ label: 'Minimum', v: card.minimum_payment }, { label: 'Full balance', v: card.current_balance }].map(({ label, v }) => (
-            <button key={label} onClick={() => setAmount(String(v || 0))}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-sm transition-colors ${String(amount) === String(v) ? 'border-accent-primary bg-accent-primary/10 text-accent-primary' : 'border-border-color text-text-secondary'}`}>
-              <span>{label}</span><span className="font-mono font-bold">{formatCurrency(v)}</span>
-            </button>
-          ))}
-        </div>
-        <div className="mb-4">
-          <label className="text-xs text-text-muted mb-1 block">Custom amount ($)</label>
-          <input type="number" step="0.01" min="0" className="w-full bg-bg-primary border border-border-color rounded-xl px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-accent-primary"
-            value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </div>
-        <button onClick={handlePay} disabled={paying || !parseFloat(amount)}
-          className="w-full bg-accent-primary text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 transition-colors">
-          {paying ? 'Processing…' : `Pay ${formatCurrency(parseFloat(amount) || 0)}`}
-        </button>
-      </div>
-    </div>
-  )
 }
 
 // ─── Card Tile ────────────────────────────────────────────────────────────────
@@ -166,8 +124,7 @@ function CardForm({ initial, onSave, onCancel, saving, isEditing }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-bg-secondary border border-accent-primary/30 rounded-2xl p-4 space-y-3">
-      <p className="text-text-primary font-semibold text-sm">{isEditing ? 'Edit Card' : 'Add Card'}</p>
+    <form onSubmit={handleSubmit} className="space-y-3">
       {!isEditing && (
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((p) => (
@@ -255,14 +212,16 @@ function IntelligencePanel({ utilization }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Credit() {
-  const { utilization, loading, fetch, create, update, remove, markPaid } = useCreditStore()
-  const { expenses } = useExpenseStore()
+  const { utilization, loading, fetch, create, update, remove } = useCreditStore()
+  const fetchAccounts = useAccountStore((s) => s.fetch)
+  const incomeSources = useIncomeStore((s) => s.sources)
+  const fetchSources  = useIncomeStore((s) => s.fetchSources)
   const [showForm,  setShowForm]  = useState(false)
   const [editing,   setEditing]   = useState(null)
   const [paying,    setPaying]    = useState(null)
   const [saving,    setSaving]    = useState(false)
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { fetch(); fetchAccounts(); fetchSources() }, [fetch, fetchAccounts, fetchSources])
 
   const handleCreate = async (payload) => { setSaving(true); try { await create(payload); setShowForm(false); toast.success('Card added') } finally { setSaving(false) } }
   const handleUpdate = async (payload) => { setSaving(true); try { await update(editing.id, payload); setEditing(null); toast.success('Card updated') } finally { setSaving(false) } }
@@ -271,11 +230,6 @@ export default function Credit() {
     if (!window.confirm(`Delete "${card?.name || 'this card'}"? This can't be undone.`)) return
     await remove(id)
     toast.success('Card removed')
-  }
-  const handlePay    = async (id, amount) => {
-    await markPaid(id, amount); toast.success('Payment recorded')
-    const card = utilization?.cards?.find((c) => c.id === id)
-    logEvent('credit_payment', `Paid ${card?.name}`, amount)
   }
 
   const cards = utilization?.cards ?? []
@@ -293,10 +247,10 @@ export default function Credit() {
         </button>
       </div>
 
-      {(showForm || editing) && (
-        <CardForm initial={editing ? toForm(editing) : undefined} onSave={editing ? handleUpdate : handleCreate}
+      <Modal isOpen={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null) }} title={editing ? 'Edit Card' : 'Add Card'}>
+        <CardForm key={editing?.id ?? 'new'} initial={editing ? toForm(editing) : undefined} onSave={editing ? handleUpdate : handleCreate}
           onCancel={() => { setShowForm(false); setEditing(null) }} saving={saving} isEditing={!!editing} />
-      )}
+      </Modal>
 
       {!loading && cards.length === 0 && !showForm && (
         <div className="bg-bg-secondary border border-border-color rounded-2xl p-10 text-center">
@@ -328,7 +282,11 @@ export default function Credit() {
 
       {cards.length > 0 && <IntelligencePanel utilization={utilization} />}
 
-      {paying && <PayModal card={paying} onPay={handlePay} onClose={() => setPaying(null)} />}
+      <PaySheet onClose={() => setPaying(null)} target={paying && {
+        kind: 'card', id: paying.id, name: paying.name, amount: paying.minimum_payment ?? 0,
+        quick: [{ label: 'Minimum', value: paying.minimum_payment ?? 0 }, { label: 'Full balance', value: paying.current_balance ?? 0 }],
+        defaultSource: { type: 'account', id: incomeSources.find((x) => x.type === 'biweekly')?.destination_account_id ?? null },
+      }} />
     </div>
   )
 }

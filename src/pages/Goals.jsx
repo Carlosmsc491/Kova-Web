@@ -4,6 +4,7 @@ import { useGoalsStore }   from '../stores/useGoalsStore'
 import { useExpenseStore } from '../stores/useExpenseStore'
 import { formatCurrency, formatDate } from '../lib/formatters'
 import { toast }   from '../stores/useToastStore'
+import Modal from '../components/shared/Modal'
 import { logEvent } from '../stores/useHistoryStore'
 
 function estimatedCompletion(goal) {
@@ -87,11 +88,7 @@ function GoalForm({ initial, onSave, onCancel, saving, isEditing }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-bg-secondary border border-accent-primary/30 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-text-primary font-semibold text-sm">{isEditing ? 'Edit Goal' : 'New Goal'}</p>
-        <button type="button" onClick={onCancel} className="p-1 text-text-muted"><X size={16}/></button>
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <label className="text-xs text-text-muted mb-1 block">Goal Name</label>
@@ -245,10 +242,10 @@ export default function Goals() {
       )}
 
       {/* Form */}
-      {(showForm || editing) && (
-        <GoalForm initial={editing ? toForm(editing) : undefined} onSave={editing ? handleUpdate : handleCreate}
+      <Modal isOpen={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null) }} title={editing ? 'Edit Goal' : 'New Goal'}>
+        <GoalForm key={editing?.id ?? 'new'} initial={editing ? toForm(editing) : undefined} onSave={editing ? handleUpdate : handleCreate}
           onCancel={() => { setShowForm(false); setEditing(null) }} saving={saving} isEditing={!!editing} />
-      )}
+      </Modal>
 
       {/* Empty state */}
       {!loading && goals.length === 0 && !showForm && (

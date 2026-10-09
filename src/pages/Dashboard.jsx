@@ -11,8 +11,8 @@ import { useGoalsStore }      from '../stores/useGoalsStore'
 import { useAccountStore }    from '../stores/useAccountStore'
 import { useHouseholdStore }  from '../stores/useHouseholdStore'
 import { formatCurrency, formatDate, formatPercent } from '../lib/formatters'
-import { getNextPaycheckDate, daysUntil, parseISO, toISO, isPaidThisCycle } from '../lib/dateUtils'
-import { buildPaymentCalendar } from '../lib/budgetEngine'
+import { getNextPaycheckDate, daysUntil } from '../lib/dateUtils'
+import { buildCashFlowContext, myShareOf } from '../lib/cashFlowEngine'
 
 // ─── count-up hook ────────────────────────────────────────────────────────────
 function useCountUp(target, duration = 700) {
@@ -181,54 +181,18 @@ export default function Dashboard() {
     fetchHousehold()
   }, [fetchExpenses, fetchSources, fetchCredit, fetchGoals, fetchAccounts, fetchHousehold])
 
-  const job1       = sources.find((s) => s.type === 'biweekly')
-  const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
+  // Same engine as Cash Flow, so the two pages always agree.
+  const ctx = buildCashFlowContext({ accounts, expenses, sources, cards: utilization?.cards ?? [], contributors, reserve: 0 })
+  const { job1, baseline, startBalance: totalBalance } = ctx
+  // What can leave checking today without the balance going negative on any
+  // day of the next 60 (after bills, card minimums and paychecks).
+  const lowDay         = baseline.reduce((lo, d) => (d.balance < lo.balance ? d : lo), baseline[0])
+  const trulyAvailable = Math.max(0, lowDay?.balance ?? totalBalance)
 
-  const activeExpenses = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
-  const memberCount    = contributors.length + 1
-
-  // Use the user's share of household expenses for all budget calculations
-  const effectiveExpenses = activeExpenses.map((e) => {
-    if ((e.is_household === true || e.is_household === 1) && memberCount > 1) {
-      return { ...e, amount: (e.amount || 0) / memberCount }
-    }
-    return e
-  })
-
-  // ── Truly Available (inline, avoids paycheck-date matching bugs) ─────────────
-  // Expenses not yet paid this billing cycle
-  const unpaidThisMonth = effectiveExpenses.reduce((sum, e) => {
-    if (e.due_type !== 'monthly' && e.due_type !== 'weekly') return sum
-    if (isPaidThisCycle(e)) return sum
-    return sum + (e.amount || 0)
-  }, 0)
-
-  const trulyAvailable = Math.max(0, totalBalance - unpaidThisMonth)
-  const monthlyExpenseTotal = effectiveExpenses.reduce((s, e) => {
-    if (e.due_type === 'monthly') return s + (e.amount || 0)
-    if (e.due_type === 'weekly')  return s + (e.amount || 0) * 4
-    return s
-  }, 0)
-  const safetyFloor = totalBalance - monthlyExpenseTotal
-
-  // ── Payment calendar — build paycheck list via arithmetic (no string matching) ─
-  const paycheckDateList = []
-  if (job1?.last_paycheck_date && job1?.amount_per_period) {
-    const lastPay  = parseISO(job1.last_paycheck_date)
-    const todayMs  = new Date().setHours(0, 0, 0, 0)
-    for (let i = 1; i <= 14; i++) {
-      const d       = new Date(todayMs)
-      d.setDate(d.getDate() + i)
-      const diffDays = Math.round((d.getTime() - lastPay.getTime()) / 86_400_000)
-      if (diffDays > 0 && diffDays % 14 === 0) paycheckDateList.push(toISO(d))
-    }
-  }
-
-  const calendarEvents = buildPaymentCalendar({
-    expenses: effectiveExpenses,
-    job1Source: job1,
-    paycheckDateList,
-  })
+  // Next 14 days of bills and paychecks
+  const calendarEvents = baseline.slice(0, 15).flatMap((d) => d.events.map((e) => ({
+    date: d.dateStr, name: e.name, amount: e.amount, type: e.type,
+  })))
 
   // Next paycheck
   const nextPayDate  = job1?.last_paycheck_date ? getNextPaycheckDate(job1.last_paycheck_date) : null
@@ -255,7 +219,7 @@ export default function Dashboard() {
           {formatCurrency(trulyAvailable)}
         </p>
         <p className="text-text-muted text-xs mt-1.5">
-          Balance: {formatCurrency(totalBalance)} · Still owed this month: {formatCurrency(unpaidThisMonth)}
+          Balance: {formatCurrency(totalBalance)} · Lowest point ahead: {formatCurrency(lowDay?.balance ?? totalBalance)}{lowDay ? ` on ${lowDay.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
         </p>
       </div>
 
@@ -304,12 +268,13 @@ export default function Dashboard() {
 
       {/* Monthly expenses breakdown */}
       {(() => {
+        const activeExpenses = expenses.filter((e) => e.is_active !== false && e.is_active !== 0 && !(e.expense_type === 'installment' && e.completed_at))
         const personalExp  = activeExpenses.filter((e) => e.is_household !== true && e.is_household !== 1)
         const householdExp = activeExpenses.filter((e) => e.is_household === true || e.is_household === 1)
         const personalTotal    = personalExp.reduce((s, e) => s + (e.amount || 0), 0)
         const householdTotal   = householdExp.reduce((s, e) => s + (e.amount || 0), 0)
         const memberCount      = contributors.length + 1
-        const myShareTotal     = memberCount > 1 ? householdTotal / memberCount : householdTotal
+        const myShareTotal     = householdExp.reduce((s, e) => s + myShareOf(e, memberCount), 0)
         const totalNeeded      = personalTotal + myShareTotal
         return (
           <div className="bg-bg-secondary border border-border-color rounded-2xl p-4">
