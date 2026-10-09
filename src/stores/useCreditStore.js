@@ -66,15 +66,4 @@ export const useCreditStore = create((set, get) => ({
       return { cards, utilization: computeUtilization(cards) }
     })
   },
-
-  markPaid: async (id, amount) => {
-    const card = get().cards.find((c) => c.id === id)
-    if (!card) return
-    const updated = await creditService.markPaid(id, card, amount)
-    set((s) => {
-      const cards = s.cards.map((c) => c.id === id ? { ...c, ...updated } : c)
-      return { cards, utilization: computeUtilization(cards) }
-    })
-    return updated
-  },
 }))

@@ -2,7 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore }  from '../stores/useAuthStore'
 import { useRoleStore }  from '../stores/useRoleStore'
-import { inviteService, profileService, householdDocService } from '../services/firestoreService'
+import { getFunctions, httpsCallable } from 'firebase/functions'
+import { app } from '../firebase'
+import { inviteService } from '../services/firestoreService'
+
+const joinHouseholdFn = httpsCallable(getFunctions(app), 'joinHousehold')
 
 export default function JoinHousehold() {
   const [params]   = useSearchParams()
@@ -68,24 +72,14 @@ export default function JoinHousehold() {
     }
 
     const uid = useAuthStore.getState().user?.uid
-    const hid = invite.household_id
     try {
-      await profileService.set(uid, {
-        role:             'member',
-        household_id:     hid,
-        name:             name.trim(),
-        contributor_id:   invite.contributor_id   ?? null,
-        contributor_name: invite.contributor_name ?? null,
-      })
-      await householdDocService.addMember(hid, uid)
-      // Best-effort: the user has already fully joined at this point, so a
-      // failure here (network blip, etc.) shouldn't surface as a setup error.
-      try { await inviteService.redeem(token) } catch { /* ignore */ }
+      // The server checks the invite (unused, unexpired, right email) and adds
+      // the member — clients can no longer write member lists themselves.
+      await joinHouseholdFn({ token, name: name.trim() })
       await initRole(uid)
       navigate('/')
     } catch (err) {
-      const msg = err?.code || err?.message || String(err)
-      setFormErr(`Setup failed: ${msg}`)
+      setFormErr(err?.message || 'Could not join the household.')
       setSubmitting(false)
     }
   }

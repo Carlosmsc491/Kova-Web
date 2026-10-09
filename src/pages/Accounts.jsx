@@ -3,6 +3,7 @@ import { Landmark, Plus, Pencil, Trash2, X, ArrowLeftRight, ArrowRight } from 'l
 import { useAccountStore } from '../stores/useAccountStore'
 import { formatCurrency } from '../lib/formatters'
 import { toast } from '../stores/useToastStore'
+import Modal from '../components/shared/Modal'
 
 // ─── Account Form ─────────────────────────────────────────────────────────────
 const BLANK = { name: '', institution: '', current_balance: '', account_type: 'checking' }
@@ -24,13 +25,7 @@ function AccountForm({ initial, onSave, onCancel, saving, isEditing }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-bg-tertiary border border-accent-primary/30 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-text-primary font-semibold text-sm">{isEditing ? 'Edit Account' : 'Add Account'}</p>
-        <button type="button" onClick={onCancel} className="p-1 text-text-muted hover:text-text-primary">
-          <X size={16} />
-        </button>
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <label className="text-xs text-text-muted mb-1 block">Account Name</label>
         <input className={inp} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Main Checking" required />
@@ -317,8 +312,10 @@ export default function Accounts() {
         <p className="text-text-muted text-xs mt-1">{accounts.length} account{accounts.length !== 1 ? 's' : ''}</p>
       </div>
 
-      {(showForm || editing) && (
+      <Modal isOpen={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null) }}
+        title={editing ? 'Edit Account' : 'Add Account'}>
         <AccountForm
+          key={editing?.id ?? 'new'}
           initial={editing ? {
             name:            editing.name,
             institution:     editing.institution || '',
@@ -330,7 +327,7 @@ export default function Accounts() {
           saving={saving}
           isEditing={!!editing}
         />
-      )}
+      </Modal>
 
       <div className="space-y-3">
         {accounts.map((account) => (

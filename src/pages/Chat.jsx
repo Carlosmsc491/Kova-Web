@@ -7,51 +7,9 @@ import { useIncomeStore }  from '../stores/useIncomeStore'
 import { useCreditStore }  from '../stores/useCreditStore'
 import { useGoalsStore }   from '../stores/useGoalsStore'
 import { useAccountStore } from '../stores/useAccountStore'
+import { useHouseholdStore } from '../stores/useHouseholdStore'
 import { formatCurrency }  from '../lib/formatters'
-import { isPaidThisCycle, todayISO, getNextPaycheckDate } from '../lib/dateUtils'
-
-// ─── snapshot builder ─────────────────────────────────────────────────────────
-function buildSnapshot({ accounts, expenses, sources, utilization, goals }) {
-  const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
-  const today        = todayISO()
-
-  const active = expenses.filter((e) => e.is_active !== false && e.is_active !== 0)
-  const personal  = active.filter((e) => e.is_household !== true && e.is_household !== 1)
-  const household = active.filter((e) => e.is_household === true || e.is_household === 1)
-
-  const personalTotal = personal.reduce((s, e) => s + (e.amount || 0), 0)
-  const myShareTotal  = household.reduce((s, e) => s + (e.my_share ?? e.amount ?? 0), 0)
-
-  return {
-    today,
-    total_balance:      totalBalance,
-    accounts:           accounts.map((a) => ({ id: a.id, name: a.name, institution: a.institution, balance: a.current_balance })),
-    income_sources:     sources.filter((s) => s.type === 'biweekly').map((s) => ({
-      id:                s.id,
-      name:              s.name,
-      type:              s.type,
-      amount_per_period: s.amount_per_period,
-      last_paid_date:    s.last_paycheck_date ?? null,
-      next_payment_date: s.last_paycheck_date ? getNextPaycheckDate(s.last_paycheck_date) : null,
-    })),
-    personal_expenses:  personal.map((e) => ({
-      id: e.id, name: e.name, amount: e.amount, category: e.category,
-      due_type: e.due_type || 'monthly', due_day: e.due_day, due_date: e.due_date ?? null,
-      paid_this_cycle: isPaidThisCycle(e),
-    })),
-    household_expenses: household.map((e) => ({
-      id: e.id, name: e.name, total_amount: e.amount, my_share: e.my_share ?? e.amount,
-      category: e.category, due_type: e.due_type || 'monthly', due_day: e.due_day, due_date: e.due_date ?? null,
-      paid_this_cycle: isPaidThisCycle(e),
-    })),
-    monthly_personal_total: personalTotal,
-    monthly_my_share_total: myShareTotal,
-    monthly_total_obligation: personalTotal + myShareTotal,
-    credit_cards:       utilization?.cards?.map((c) => ({ id: c.id, name: c.name, balance: c.current_balance, limit: c.credit_limit, apr: c.apr, utilization: c.utilization_pct?.toFixed(1) + '%' })) ?? [],
-    credit_utilization: utilization?.total_utilization_pct?.toFixed(1) + '%',
-    active_goals:       goals.map((g) => ({ id: g.id, name: g.name, current: g.current_amount, target: g.target_amount, progress: g.target_amount > 0 ? ((g.current_amount/g.target_amount)*100).toFixed(0) + '%' : '0%' })),
-  }
-}
+import { buildSnapshot } from '../lib/snapshot'
 
 // ─── Clean AI response — strip markdown tables and horizontal rules ───────────
 function cleanAIResponse(text) {
@@ -151,24 +109,30 @@ const SUGGESTIONS = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Chat() {
   const { messages, loading, historyLoaded, send, clear, loadHistory } = useAIStore()
-  const { expenses } = useExpenseStore()
-  const { sources } = useIncomeStore()
-  const { utilization } = useCreditStore()
-  const { goals } = useGoalsStore()
-  const { accounts } = useAccountStore()
+  const { expenses, fetch: fetchExpenses }      = useExpenseStore()
+  const { sources, fetchSources }               = useIncomeStore()
+  const { utilization, fetch: fetchCredit }     = useCreditStore()
+  const { goals, fetch: fetchGoals }            = useGoalsStore()
+  const { accounts, fetch: fetchAccounts }      = useAccountStore()
+  const { contributors, fetch: fetchHousehold } = useHouseholdStore()
 
   const [input, setInput] = useState('')
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
   useEffect(() => { if (!historyLoaded) loadHistory() }, [historyLoaded, loadHistory])
+  // Load everything the AI reads, so its snapshot is complete even when the
+  // chat is the first page opened.
+  useEffect(() => {
+    fetchExpenses(); fetchSources(); fetchCredit(); fetchGoals(); fetchAccounts(); fetchHousehold()
+  }, [fetchExpenses, fetchSources, fetchCredit, fetchGoals, fetchAccounts, fetchHousehold])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
 
   const handleSend = async () => {
     const text = input.trim()
     if (!text || loading) return
     setInput('')
-    const snapshot = buildSnapshot({ accounts, expenses, sources, utilization, goals })
+    const snapshot = buildSnapshot({ accounts, expenses, sources, utilization, goals, contributors })
     try { await send(text, snapshot) } catch {}
   }
 
@@ -176,18 +140,10 @@ export default function Chat() {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSend() }
   }
 
-  const apiKeyMissing = !import.meta.env.VITE_ANTHROPIC_API_KEY
-
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {apiKeyMissing && (
-          <div className="bg-accent-warning/10 border border-accent-warning/30 rounded-2xl p-4 text-sm">
-            <p className="text-accent-warning font-semibold mb-1">API Key Missing</p>
-            <p className="text-text-muted text-xs">Add <code className="bg-bg-tertiary px-1 rounded">VITE_ANTHROPIC_API_KEY</code> to your <code className="bg-bg-tertiary px-1 rounded">.env.local</code> file and rebuild.</p>
-          </div>
-        )}
 
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4 py-8">
