@@ -1,11 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createRequire } from 'module'
 import {
   firstUnpaidOccurrence, nextOccurrenceAfter, isPaidThisCycle, upcomingOccurrences, paycheckDatesThrough,
 } from './dateUtils'
 import { buildCashFlowContext, myShareOf } from './cashFlowEngine'
-
-const serverDueDates = createRequire(import.meta.url)('../../functions/dueDates.js')
 
 // All tests run on Fri Oct 9 2026 (a payday).
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0)) })
@@ -82,17 +79,6 @@ describe('due dates', () => {
 
   it('lists paychecks every 14 days', () => {
     expect(paycheckDatesThrough('2026-10-09', '2026-11-20')).toEqual(['2026-10-23', '2026-11-06', '2026-11-20'])
-  })
-
-  it('server copy of the due-date logic matches the app', () => {
-    const items = [
-      { due_type: 'monthly', due_day: 31, last_paid_date: '2026-09-02' },
-      { due_type: 'weekly', due_day: 0, paid_through: '2026-10-04' },
-      { due_type: 'biweekly', due_date: '2026-09-01' },
-      { due_type: 'one-time', due_date: '2026-10-20' },
-      { due_type: 'monthly', due_day: 12 },
-    ]
-    for (const it of items) expect(serverDueDates.firstUnpaidOccurrence(it, '2026-10-09')).toBe(firstUnpaidOccurrence(it, '2026-10-09'))
   })
 })
 

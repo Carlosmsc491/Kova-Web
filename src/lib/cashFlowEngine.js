@@ -1,4 +1,4 @@
-import { toISO, upcomingOccurrences, paycheckDatesThrough } from './dateUtils'
+import { toISO, upcomingOccurrences, paycheckDatesThrough } from './dateUtils.js'
 
 export const HORIZON = 60
 // Smallest extra card payment worth scheduling — avoids a trail of tiny payments.

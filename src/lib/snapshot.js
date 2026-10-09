@@ -1,5 +1,5 @@
-import { isPaidThisCycle, todayISO, getNextPaycheckDate } from './dateUtils'
-import { buildCashFlowContext, planForSnapshot, myShareOf } from './cashFlowEngine'
+import { isPaidThisCycle, todayISO, getNextPaycheckDate } from './dateUtils.js'
+import { buildCashFlowContext, planForSnapshot, myShareOf } from './cashFlowEngine.js'
 
 export const RESERVE_KEY = 'kova_cashflow_reserve'
 
@@ -7,7 +7,7 @@ export function loadReserve() {
   try { return Math.max(0, Number(localStorage.getItem(RESERVE_KEY)) || 0) } catch { return 0 }
 }
 
-export function buildSnapshot({ accounts, expenses, sources, utilization, goals, contributors = [] }) {
+export function buildSnapshot({ accounts, expenses, sources, utilization, goals, contributors = [], reserve: reserveOverride }) {
   const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
   const today        = todayISO()
 
@@ -20,7 +20,8 @@ export function buildSnapshot({ accounts, expenses, sources, utilization, goals,
   const myShareTotal  = household.reduce((s, e) => s + myShareOf(e, memberCount), 0)
 
   const cards   = utilization?.cards ?? []
-  const reserve = loadReserve()
+  // The server has no localStorage, so it passes the reserve saved in Firestore.
+  const reserve = reserveOverride ?? loadReserve()
   const cf      = buildCashFlowContext({ accounts, expenses, sources, cards, contributors, reserve })
 
   return {

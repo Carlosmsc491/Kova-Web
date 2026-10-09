@@ -1,59 +1,61 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Only the owner's account — and members the owner invited (their profile
+    // is written by the joinHousehold Cloud Function, never by clients) — can
+    // touch anything. Anyone else can create a Google login, but it gets
+    // access to nothing. Keep OWNER in sync with src/config.js and
+    // functions/.env (OWNER_UIDS).
     function signedIn() { return request.auth != null; }
+    function isOwner()  { return signedIn() && request.auth.uid == 'YJa3cGhuPDeMTlfAJ0LX6LN3AGI2'; }
+    function isMember() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', null) == 'member';
+    }
+    function allowed()  { return isOwner() || isMember(); }
 
-    // Each user's own finances. Nobody else can read or write them.
+    // Each allowed user's own finances. Nobody else can read or write them.
     match /users/{userId}/{document=**} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read, write: if allowed() && request.auth.uid == userId;
     }
 
     match /user_profiles/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
-      // A user can't promote themselves into a household: role/household_id
-      // for members are written only by the joinHousehold Cloud Function.
-      allow create, update: if signedIn() && request.auth.uid == userId &&
-        !(request.resource.data.get('role', null) == 'member' &&
-          request.resource.data.get('household_id', null) != resource.data.get('household_id', null));
+      // Only the owner writes their own profile; member profiles come from
+      // the joinHousehold function, so roles can't be self-assigned.
+      allow create, update: if isOwner() && request.auth.uid == userId;
     }
 
     match /households/{householdId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.member_uids;
-      // A new household must belong to its creator, with only them in it.
-      allow create: if signedIn() &&
+      allow read: if allowed() && request.auth.uid in resource.data.member_uids;
+      allow create: if isOwner() &&
         request.resource.data.owner_uid == request.auth.uid &&
         request.resource.data.member_uids == [request.auth.uid];
-      // Only the owner edits it, and can't hand ownership away. Members are
-      // added by the joinHousehold Cloud Function after it validates an invite.
-      allow update: if signedIn() &&
-        request.auth.uid == resource.data.owner_uid &&
+      // Members are added by joinHousehold after it validates an invite.
+      allow update: if isOwner() && resource.data.owner_uid == request.auth.uid &&
         request.resource.data.owner_uid == resource.data.owner_uid;
     }
 
     match /households/{householdId}/shared_expenses/{expenseId} {
-      allow read: if signedIn() &&
+      allow read: if allowed() &&
         request.auth.uid in get(/databases/$(database)/documents/households/$(householdId)).data.member_uids;
-      allow write: if signedIn() &&
+      allow write: if isOwner() &&
         request.auth.uid == get(/databases/$(database)/documents/households/$(householdId)).data.owner_uid;
     }
 
     match /invites/{token} {
       // Fetching one invite by its secret token is public (the join page shows
-      // it before the visitor has an account). Listing the collection is not —
-      // that would hand out every token.
+      // it before the visitor signs in). Listing would hand out every token.
       allow get: if true;
       allow list: if false;
-
-      // Only a household owner creates invites, unused, for their own household.
-      allow create: if signedIn() &&
+      allow create: if isOwner() &&
         request.resource.data.owner_uid == request.auth.uid &&
-        request.resource.data.used == false &&
-        get(/databases/$(database)/documents/households/$(request.resource.data.household_id)).data.owner_uid == request.auth.uid;
-
-      // Redeeming happens in the joinHousehold Cloud Function; the owner may
-      // revoke (delete) their own invites.
+        request.resource.data.used == false;
+      // Redeeming happens in joinHousehold; the owner may revoke invites.
       allow update: if false;
-      allow delete: if signedIn() && resource.data.owner_uid == request.auth.uid;
+      allow delete: if isOwner() && resource.data.owner_uid == request.auth.uid;
     }
+
+    // telegram_links / telegram_chats are server-only (Cloud Functions).
   }
 }

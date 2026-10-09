@@ -13,6 +13,7 @@ const TITLES = {
   '/history':   'History',
   '/household': 'Household',
   '/cashflow':  'Cash Flow',
+  '/settings':  'Settings',
 }
 
 export default function TopBar({ onMenuOpen }) {

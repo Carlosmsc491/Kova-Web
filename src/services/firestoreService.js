@@ -427,6 +427,17 @@ export const insightService = {
     setDoc(userDoc('ai_insights', kind), { hash, result, created_at: serverTimestamp() }),
 }
 
+// ── Settings (small per-user prefs the server also reads) ────────────────────
+
+export const settingsService = {
+  get: async (name) => {
+    const snap = await getDoc(userDoc('settings', name))
+    return snap.exists() ? snap.data() : null
+  },
+  set: (name, data) => setDoc(userDoc('settings', name), { ...data, updated_at: serverTimestamp() }, { merge: true }),
+  remove: (name) => deleteDoc(userDoc('settings', name)),
+}
+
 // ── User Profile ──────────────────────────────────────────────────────────────
 
 export const profileService = {

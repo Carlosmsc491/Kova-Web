@@ -19,7 +19,7 @@ import { formatCurrency }     from '../lib/formatters'
 import { HORIZON, buildCashFlowContext } from '../lib/cashFlowEngine'
 import { buildSnapshot, RESERVE_KEY, loadReserve } from '../lib/snapshot'
 import { analyzeCashFlow }    from '../services/aiService'
-import { insightService }     from '../services/firestoreService'
+import { insightService, settingsService } from '../services/firestoreService'
 
 // ─── Event row ─────────────────────────────────────────────────────────────────
 function EventRow({ event, onPay, onReceive }) {
@@ -383,6 +383,9 @@ export default function CashFlow() {
 
   useEffect(() => {
     try { localStorage.setItem(RESERVE_KEY, String(reserve)) } catch { /* storage blocked: setting just won't persist */ }
+    // Also saved server-side so the Telegram bot plans with the same reserve.
+    const t = setTimeout(() => settingsService.set('cashflow', { reserve }).catch(() => {}), 800)
+    return () => clearTimeout(t)
   }, [reserve])
 
   // Recomputed on every render from the live stores, so any balance, bill,

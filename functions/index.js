@@ -2,7 +2,6 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const Anthropic = require("@anthropic-ai/sdk");
-const { firstUnpaidOccurrence } = require("./dueDates");
 
 admin.initializeApp();
 
@@ -23,6 +22,26 @@ const MAX_SNAPSHOT_BYTES = 200_000;
 function requireUser(request) {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+  return uid;
+}
+
+// The AI costs money per call, and anyone can create a Firebase account, so
+// only the owner (OWNER_UIDS in functions/.env) and members of the owner's
+// household may use it. Members are added only by joinHousehold.
+const allowedCache = new Map();
+async function isAllowed(uid) {
+  const owners = (process.env.OWNER_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (owners.includes(uid)) return true;
+  if (allowedCache.has(uid)) return allowedCache.get(uid);
+  const q = await admin.firestore().collection("households")
+    .where("member_uids", "array-contains", uid).limit(5).get();
+  const ok = q.docs.some((d) => owners.includes(d.data().owner_uid));
+  allowedCache.set(uid, ok);
+  return ok;
+}
+async function requireAllowedUser(request) {
+  const uid = requireUser(request);
+  if (!(await isAllowed(uid))) throw new HttpsError("permission-denied", "This account can't use Kova AI.");
   return uid;
 }
 
@@ -200,6 +219,8 @@ const TOOLS = [
 const round2 = (n) => Math.round(n * 100) / 100;
 
 async function executeTool(name, input, uid, today) {
+  // Same due-date logic as the app (copied in by scripts/sync-shared.cjs).
+  const { firstUnpaidOccurrence } = await import("./shared/dateUtils.js");
   const db     = admin.firestore();
   const userDb = (col) => db.collection("users").doc(uid).collection(col);
   const now    = admin.firestore.FieldValue.serverTimestamp();
@@ -428,69 +449,77 @@ async function executeTool(name, input, uid, today) {
   return { success: false, message: `Unknown tool: ${name}` };
 }
 
+// One conversation turn with tools — shared by the app chat and Telegram.
+async function runChat({ uid, message, snapshot, history }) {
+  // Use the user's local "today" for any date the model writes — the
+  // function runs in UTC, which can be a day off from the user's date.
+  const today = /^d{4}-d{2}-d{2}$/.test(snapshot?.today || "") ? snapshot.today : new Date().toISOString().split("T")[0];
+
+  const contextBlock = snapshot ? `<financial_context>
+${JSON.stringify(snapshot)}
+</financial_context>
+
+` : "";
+  const priorTurns = (Array.isArray(history) ? history : [])
+    .slice(-MAX_HISTORY_TURNS)
+    .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_TURN_CHARS) }));
+  // The API needs the conversation to open with a user turn.
+  while (priorTurns.length && priorTurns[0].role !== "user") priorTurns.shift();
+
+  const client = new Anthropic({ apiKey: anthropicKey.value() });
+  const callModel = (msgs) => client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: "medium" },
+    // Caches the stable prefix (tools + system + earlier turns).
+    cache_control: { type: "ephemeral" },
+    system: SYSTEM_PROMPT,
+    tools: TOOLS,
+    messages: msgs,
+    ...FALLBACK,
+  });
+
+  // The model may need several rounds (e.g. adding many expenses), so keep
+  // executing tools until it answers with text, capped to avoid runaways.
+  const MAX_ROUNDS = 5;
+  const actionsExecuted = [];
+  let convo = [...priorTurns, { role: "user", content: contextBlock + message }];
+  let data = await callModel(convo);
+
+  for (let round = 0; round < MAX_ROUNDS && data.stop_reason === "tool_use"; round++) {
+    const toolUseBlocks = data.content.filter((b) => b.type === "tool_use");
+    const toolResults = await Promise.all(
+      toolUseBlocks.map(async (toolUse) => {
+        const result = await executeTool(toolUse.name, toolUse.input, uid, today).catch((e) => ({
+          success: false,
+          message: `Error executing ${toolUse.name}: ${e.message}`,
+        }));
+        if (result.success) actionsExecuted.push(toolUse.name);
+        return { type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify(result), ...(result.success ? {} : { is_error: true }) };
+      })
+    );
+    // Append the full assistant content (including thinking blocks) unchanged.
+    convo = [...convo, { role: "assistant", content: data.content }, { role: "user", content: toolResults }];
+    data = await callModel(convo);
+  }
+
+  if (data.stop_reason === "refusal") {
+    return { text: "I can't help with that one. Try asking another way.", actionsExecuted };
+  }
+  return { text: textOf(data), actionsExecuted };
+}
+
 exports.chat = onCall(
   { secrets: [anthropicKey], cors: true, maxInstances: 10, timeoutSeconds: 120 },
   async (request) => {
-    const uid = requireUser(request);
+    const uid = await requireAllowedUser(request);
     const { message, snapshot, history } = request.data || {};
     if (!message || typeof message !== "string" || message.length > MAX_MESSAGE_CHARS) {
       throw new HttpsError("invalid-argument", "message is required (max 4000 characters).");
     }
     checkSnapshot(snapshot);
-
-    // Use the client's local "today" for any date the model writes — the
-    // function runs in UTC, which can be a day off from the user's date.
-    const today = /^\d{4}-\d{2}-\d{2}$/.test(snapshot?.today || "") ? snapshot.today : new Date().toISOString().split("T")[0];
-
-    const contextBlock = snapshot ? `<financial_context>\n${JSON.stringify(snapshot)}\n</financial_context>\n\n` : "";
-    const priorTurns = (Array.isArray(history) ? history : [])
-      .slice(-MAX_HISTORY_TURNS)
-      .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content)
-      .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_TURN_CHARS) }));
-    // The API needs the conversation to open with a user turn.
-    while (priorTurns.length && priorTurns[0].role !== "user") priorTurns.shift();
-
-    const client = new Anthropic({ apiKey: anthropicKey.value() });
-    const callModel = (msgs) => client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      output_config: { effort: "medium" },
-      // Caches the stable prefix (tools + system + earlier turns).
-      cache_control: { type: "ephemeral" },
-      system: SYSTEM_PROMPT,
-      tools: TOOLS,
-      messages: msgs,
-      ...FALLBACK,
-    });
-
-    // The model may need several rounds (e.g. adding many expenses), so keep
-    // executing tools until it answers with text, capped to avoid runaways.
-    const MAX_ROUNDS = 5;
-    const actionsExecuted = [];
-    let convo = [...priorTurns, { role: "user", content: contextBlock + message }];
-    let data = await callModel(convo);
-
-    for (let round = 0; round < MAX_ROUNDS && data.stop_reason === "tool_use"; round++) {
-      const toolUseBlocks = data.content.filter((b) => b.type === "tool_use");
-      const toolResults = await Promise.all(
-        toolUseBlocks.map(async (toolUse) => {
-          const result = await executeTool(toolUse.name, toolUse.input, uid, today).catch((e) => ({
-            success: false,
-            message: `Error executing ${toolUse.name}: ${e.message}`,
-          }));
-          if (result.success) actionsExecuted.push(toolUse.name);
-          return { type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify(result), ...(result.success ? {} : { is_error: true }) };
-        })
-      );
-      // Append the full assistant content (including thinking blocks) unchanged.
-      convo = [...convo, { role: "assistant", content: data.content }, { role: "user", content: toolResults }];
-      data = await callModel(convo);
-    }
-
-    if (data.stop_reason === "refusal") {
-      return { text: "I can't help with that one. Try asking another way.", actionsExecuted };
-    }
-    return { text: textOf(data), actionsExecuted };
+    return runChat({ uid, message, snapshot, history });
   }
 );
 
@@ -552,7 +581,7 @@ const REVIEW_SCHEMA = {
 exports.analyzeCashFlow = onCall(
   { secrets: [anthropicKey], cors: true, maxInstances: 10, timeoutSeconds: 120 },
   async (request) => {
-    requireUser(request);
+    await requireAllowedUser(request);
     const { snapshot } = request.data || {};
     if (!snapshot) throw new HttpsError("invalid-argument", "snapshot is required.");
     checkSnapshot(snapshot);
@@ -621,3 +650,200 @@ exports.joinHousehold = onCall({ cors: true, maxInstances: 10 }, async (request)
     return { household_id: invite.household_id };
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Telegram bot — morning digest + chat with Kova AI (see telegram.js)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const crypto = require("crypto");
+const tgBot = require("./telegram");
+
+const telegramToken = defineSecret("TELEGRAM_BOT_TOKEN");
+const REGION_URL = "https://us-central1-kona-finances.cloudfunctions.net";
+const DEFAULT_TZ = "America/New_York";
+
+// Loads the user's data and runs the same engine as the app, in their timezone.
+async function loadServerSnapshot(uid) {
+  const db = admin.firestore();
+  const userRef = db.collection("users").doc(uid);
+  const all = (col) => userRef.collection(col).get().then((q) => q.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const [accounts, expenses, sources, cards, goals, contributors, cfSettings, tgSettings] = await Promise.all([
+    all("accounts"), all("fixed_expenses"), all("income_sources"), all("credit_cards"), all("goals"),
+    all("household_contributors"),
+    userRef.collection("settings").doc("cashflow").get(),
+    userRef.collection("settings").doc("telegram").get(),
+  ]);
+  // The engine reads "today" from the clock; run it in the user's timezone.
+  process.env.TZ = tgSettings.data()?.tz || DEFAULT_TZ;
+
+  const lim = cards.reduce((s, c) => s + (c.credit_limit || 0), 0);
+  const bal = cards.reduce((s, c) => s + (c.current_balance || 0), 0);
+  const utilization = {
+    total_utilization_pct: lim > 0 ? (bal / lim) * 100 : 0,
+    cards: cards.map((c) => ({ ...c, utilization_pct: c.credit_limit > 0 ? ((c.current_balance || 0) / c.credit_limit) * 100 : 0 })),
+  };
+  const reserve = Math.max(0, Number(cfSettings.data()?.reserve) || 0);
+  const { buildSnapshot } = await import("./shared/snapshot.js");
+  const { buildCashFlowContext } = await import("./shared/cashFlowEngine.js");
+  const snapshot = buildSnapshot({ accounts, expenses, sources, utilization, goals, contributors, reserve });
+  const ctx = buildCashFlowContext({ accounts, expenses, sources, cards: utilization.cards, contributors, reserve });
+  return { snapshot, ctx, accounts };
+}
+
+// The app calls this to get a one-time link that connects a Telegram chat.
+exports.telegramLink = onCall(
+  { secrets: [telegramToken], cors: true, maxInstances: 5 },
+  async (request) => {
+    const uid = await requireAllowedUser(request);
+    const token = telegramToken.value();
+    // (Re)register the webhook — idempotent, and keeps the secret header in sync.
+    await tgBot.tg(token, "setWebhook", {
+      url: `${REGION_URL}/telegramWebhook`,
+      secret_token: tgBot.webhookSecret(token),
+      allowed_updates: ["message"],
+    });
+    await tgBot.tg(token, "setMyCommands", {
+      commands: [
+        { command: "hoy", description: "Resumen de hoy: cuentas, pagos y saldo" },
+        { command: "stop", description: "Dejar de recibir el resumen diario" },
+        { command: "resume", description: "Reactivar el resumen diario" },
+      ],
+    }).catch(() => {});
+    const me = await tgBot.tg(token, "getMe", {});
+    const code = crypto.randomBytes(16).toString("hex");
+    const tz = typeof request.data?.tz === "string" && request.data.tz.length < 60 ? request.data.tz : DEFAULT_TZ;
+    await admin.firestore().collection("telegram_links").doc(code).set({ uid, tz, expires_at: Date.now() + tgBot.LINK_TTL_MS });
+    return { url: `https://t.me/${me.username}?start=${code}`, bot: me.username };
+  }
+);
+
+async function linkedUid(chatId) {
+  const db = admin.firestore();
+  const map = await db.collection("telegram_chats").doc(String(chatId)).get();
+  const uid = map.data()?.uid;
+  if (!uid) return null;
+  // Disconnecting in the app deletes settings/telegram — honor that here.
+  const s = await db.collection("users").doc(uid).collection("settings").doc("telegram").get();
+  return s.data()?.chat_id === chatId ? uid : null;
+}
+
+exports.telegramWebhook = onRequest(
+  { secrets: [anthropicKey, telegramToken], maxInstances: 5, timeoutSeconds: 120 },
+  async (req, res) => {
+    const token = telegramToken.value();
+    if (req.method !== "POST" || req.get("x-telegram-bot-api-secret-token") !== tgBot.webhookSecret(token)) {
+      res.status(403).send("forbidden");
+      return;
+    }
+    const msg = req.body?.message;
+    const chatId = msg?.chat?.id;
+    const text = typeof msg?.text === "string" ? msg.text.trim() : "";
+    const reply = (html) => tgBot.tg(token, "sendMessage", { chat_id: chatId, text: html, parse_mode: "HTML", disable_web_page_preview: true });
+    // Always answer 200: a failed reply shouldn't make Telegram retry the update forever.
+    try {
+      if (!chatId || !text || msg.chat.type !== "private") { res.sendStatus(200); return; }
+      const db = admin.firestore();
+
+      if (text.startsWith("/start")) {
+        const code = text.split(/\s+/)[1] || "";
+        const linkRef = db.collection("telegram_links").doc(/^[a-f0-9]{32}$/.test(code) ? code : "invalid");
+        const link = (await linkRef.get()).data();
+        // Unknown or expired codes get no answer at all: a stranger who finds
+        // the bot learns nothing and triggers nothing.
+        if (link && link.expires_at >= Date.now()) {
+          await Promise.all([
+            db.collection("telegram_chats").doc(String(chatId)).set({ uid: link.uid, linked_at: admin.firestore.FieldValue.serverTimestamp() }),
+            db.collection("users").doc(link.uid).collection("settings").doc("telegram").set({
+              chat_id: chatId, username: msg.from?.username ?? null, tz: link.tz, notify: true,
+              linked_at: admin.firestore.FieldValue.serverTimestamp(),
+            }),
+            linkRef.delete(),
+          ]);
+          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 8 te mando tu resumen.\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
+        }
+        res.sendStatus(200);
+        return;
+      }
+
+      const uid = await linkedUid(chatId);
+      // Only the one chat linked from the app is served; everyone else is
+      // ignored (no reply, no AI call, no data read).
+      if (!uid) { res.sendStatus(200); return; }
+      const settingsRef = db.collection("users").doc(uid).collection("settings").doc("telegram");
+
+      if (text === "/stop") {
+        await settingsRef.set({ notify: false }, { merge: true });
+        await reply("Listo, no te mando más el resumen diario. Escribe /resume para reactivarlo.");
+      } else if (text === "/resume") {
+        await settingsRef.set({ notify: true }, { merge: true });
+        await reply("Resumen diario reactivado ✅");
+      } else if (text === "/hoy" || text === "/today") {
+        const { ctx, accounts } = await loadServerSnapshot(uid);
+        await reply(tgBot.buildDigest({ ctx, accounts }));
+      } else {
+        if (!(await isAllowed(uid))) { await reply("Esta cuenta no puede usar Kova AI."); res.sendStatus(200); return; }
+        await tgBot.tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+        const { snapshot } = await loadServerSnapshot(uid);
+        // Same history as the in-app chat, so both see one conversation.
+        const hist = db.collection("users").doc(uid).collection("chat_history");
+        const histQ = await hist.orderBy("created_at", "desc").limit(20).get();
+        const history = histQ.docs.map((d) => d.data()).reverse().map((m) => ({ role: m.role, content: m.content }));
+        const { text: answer } = await runChat({ uid, message: text.slice(0, MAX_MESSAGE_CHARS), snapshot, history });
+        await hist.add({ role: "user", content: text, source: "telegram", created_at: admin.firestore.FieldValue.serverTimestamp() });
+        await hist.add({ role: "assistant", content: answer, source: "telegram", created_at: admin.firestore.FieldValue.serverTimestamp() });
+        await reply(tgBot.mdToHtml(answer).slice(0, 4000));
+      }
+    } catch (e) {
+      console.error("telegramWebhook", e);
+      await reply("Algo falló de mi lado. Intenta otra vez en un momento.").catch(() => {});
+    }
+    res.sendStatus(200);
+  }
+);
+
+// 8:00 a.m. digest to everyone connected (the schedule runs in New York time;
+// each user's numbers are computed in their own timezone).
+exports.telegramDailyDigest = onSchedule(
+  { schedule: "0 8 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
+  async () => {
+    const token = telegramToken.value();
+    const chats = await admin.firestore().collection("telegram_chats").get();
+    for (const doc of chats.docs) {
+      const chatId = Number(doc.id);
+      try {
+        const uid = await linkedUid(chatId);
+        if (!uid) continue;
+        const s = await admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram").get();
+        if (s.data()?.notify === false) continue;
+        const { ctx, accounts } = await loadServerSnapshot(uid);
+        await tgBot.tg(token, "sendMessage", { chat_id: chatId, text: tgBot.buildDigest({ ctx, accounts }), parse_mode: "HTML" });
+      } catch (e) {
+        console.error("digest failed for chat", chatId, e);
+      }
+    }
+  }
+);
+
+// Security alert from the app (e.g. 5 wrong device PINs) to the owner's Telegram.
+exports.securityAlert = onCall(
+  { secrets: [telegramToken], cors: true, maxInstances: 3 },
+  async (request) => {
+    const uid = await requireAllowedUser(request);
+    if (request.data?.event !== "pin_lockout") throw new HttpsError("invalid-argument", "Unknown event.");
+    const ref = admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram");
+    const tgs = (await ref.get()).data();
+    if (!tgs?.chat_id) return { sent: false };
+    // At most one alert every 5 minutes.
+    if (tgs.last_alert_at && Date.now() - tgs.last_alert_at < 5 * 60 * 1000) return { sent: false };
+    await ref.set({ last_alert_at: Date.now() }, { merge: true });
+    const when = new Date().toLocaleString("es-US", { timeZone: tgs.tz || DEFAULT_TZ });
+    await tgBot.tg(telegramToken.value(), "sendMessage", {
+      chat_id: tgs.chat_id,
+      parse_mode: "HTML",
+      text: `🔒 <b>Alerta de seguridad</b>\n\nAlguien falló el PIN de Kova 5 veces (${when}). El PIN de ese dispositivo se borró y la sesión se cerró: para volver hay que entrar con Google.\n\nSi no fuiste tú, cambia la contraseña de tu cuenta de Google.`,
+    });
+    return { sent: true };
+  }
+);

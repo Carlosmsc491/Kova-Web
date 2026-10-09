@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, TrendingUp, ReceiptText, CreditCard, MessageCircle,
+  LayoutDashboard, TrendingUp, ReceiptText, CreditCard, MessageCircle, Settings,
   Landmark, DollarSign, Target, Home, Clock,
 } from 'lucide-react'
 
@@ -19,6 +19,7 @@ export const SECONDARY = [
   { to: '/goals',     label: 'Goals',     Icon: Target },
   { to: '/household', label: 'Household', Icon: Home },
   { to: '/history',   label: 'History',   Icon: Clock },
+  { to: '/settings',  label: 'Settings',  Icon: Settings },
 ]
 
 // Household members don't get the AI chat.
