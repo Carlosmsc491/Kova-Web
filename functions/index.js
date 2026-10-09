@@ -7,7 +7,8 @@ admin.initializeApp();
 
 const anthropicKey = defineSecret("ANTHROPIC_API_KEY");
 
-const MODEL = "claude-opus-5-5";
+// Sonnet 5.5: half the price of Opus ($2/$10 per MTok) and plenty for this.
+const MODEL = "claude-sonnet-5-5";
 // On a policy decline the API re-runs the request on a fallback model it
 // picks by refusal category, inside the same call.
 const FALLBACK = { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" };
@@ -95,6 +96,8 @@ When the user asks you to do something ("mark X as paid", "update my Chase balan
 For add_expense: if the user doesn't give a date, ask for it before creating. Check the existing expenses first — don't create a duplicate. Call add_expense once per expense.
 
 ${PLAN_RULES}
+
+**Notifications (Telegram):** Kova has a Telegram bot, @kova_carlos_bot, for the owner only. Once connected (app → Settings → Connect Telegram → tap Start), it sends a summary every morning at 9 a.m. (on paydays: the paycheck is added to the deposit account and it says what to pay with it) and a payment reminder at 6 p.m. with what's due today or overdue and unpaid, what's due tomorrow, and card minimums due in 3 days — each due item has a "Ya lo pagué" button that records the payment. The user can also chat with you there. You can't send messages on your own or change the reminder times; if they ask about reminders, explain this and, if needed, how to connect or turn the summary off (/stop in the bot).
 
 **Key rules:**
 1. Use my_share (not the full amount) for household expenses unless asked otherwise.
@@ -596,7 +599,7 @@ exports.analyzeCashFlow = onCall(
     const res = await client.beta.messages.create({
       model: MODEL,
       max_tokens: 16000,
-      output_config: { effort: "high", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
       system: REVIEW_PROMPT,
       messages: [{ role: "user", content: `<financial_context>\n${JSON.stringify(snapshot)}\n</financial_context>\n\nReview my cash flow and card payments.` }],
       ...FALLBACK,
@@ -775,7 +778,7 @@ exports.telegramWebhook = onRequest(
             }),
             linkRef.delete(),
           ]);
-          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 8 te mando tu resumen, y a las 6 p.m. te recuerdo lo que tengas que pagar (con un botón para marcarlo pagado).\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
+          await reply("✅ <b>Kova conectado.</b> Cada mañana a las 9 te mando tu resumen (y los días de cobro, con qué pagar), y a las 6 p.m. te recuerdo lo que tengas que pagar (con un botón para marcarlo pagado).\n\nPregúntame lo que quieras, por ejemplo: <i>¿cuánto puedo pagar hoy?</i> o <i>pagué T-Mobile con la Apple Card</i>.\n\n/hoy — resumen ahora\n/stop — dejar de recibir el resumen");
         }
         res.sendStatus(200);
         return;
@@ -820,7 +823,7 @@ exports.telegramWebhook = onRequest(
 // 8:00 a.m. digest to everyone connected (the schedule runs in New York time;
 // each user's numbers are computed in their own timezone).
 exports.telegramDailyDigest = onSchedule(
-  { schedule: "0 8 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
+  { schedule: "0 9 * * *", timeZone: DEFAULT_TZ, secrets: [telegramToken], timeoutSeconds: 300 },
   async () => {
     const token = telegramToken.value();
     const chats = await admin.firestore().collection("telegram_chats").get();
@@ -831,10 +834,38 @@ exports.telegramDailyDigest = onSchedule(
         if (!uid) continue;
         const s = await admin.firestore().collection("users").doc(uid).collection("settings").doc("telegram").get();
         if (s.data()?.notify === false) continue;
-        const { ctx, accounts } = await loadServerSnapshot(uid);
+        let { ctx, accounts, snapshot } = await loadServerSnapshot(uid);
+
+        // Payday: the paycheck is due today (not recorded yet) or was already
+        // recorded today (e.g. the app credited it when opened).
+        const job = ctx.job1;
+        const pending = ctx.pendingPaycheck && ctx.pendingPaycheck.payDate === snapshot.today ? ctx.pendingPaycheck : null;
+        const recordedToday = job?.last_paycheck_date === snapshot.today;
+        if (pending || recordedToday) {
+          let credited = null;
+          if (pending && job.destination_account_id) {
+            // Same ledger entry as the app: shows in Recent activity and can be undone.
+            const r = await executeTool("record_paycheck",
+              { income_source_id: job.id, to_account_id: job.destination_account_id }, uid, snapshot.today);
+            if (r.success) {
+              ({ ctx, accounts, snapshot } = await loadServerSnapshot(uid));
+              const dest = accounts.find((a) => a.id === job.destination_account_id);
+              credited = { amount: Number(job.amount_per_period) || 0, accountName: dest?.name || "tu cuenta" };
+            }
+          } else if (recordedToday) {
+            const dest = accounts.find((a) => a.id === job.destination_account_id);
+            credited = { amount: Number(job.amount_per_period) || 0, accountName: dest?.name || "tu cuenta" };
+          }
+          await tgBot.tg(token, "sendMessage", {
+            chat_id: chatId, parse_mode: "HTML",
+            text: tgBot.buildPayday({ ctx, accounts, credited, paycheckAmount: Number(job?.amount_per_period) || 0 }),
+          });
+          continue;
+        }
+
         await tgBot.tg(token, "sendMessage", { chat_id: chatId, text: tgBot.buildDigest({ ctx, accounts }), parse_mode: "HTML" });
       } catch (e) {
-        console.error("digest failed for chat", chatId, e);
+        console.error("morning message failed for chat", chatId, e);
       }
     }
   }
